@@ -1,0 +1,104 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 0 0% 100%;
+    --foreground: 210 60% 19%;
+
+    --card: 0 0% 100%;
+    --card-foreground: 210 60% 19%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 210 60% 19%;
+    
+    --primary: 210 60% 19%;
+    --primary-foreground: 0 0% 100%;
+
+    --accent: 37 27% 80%;
+    --accent-foreground: 210 60% 19%;
+
+    --sidebar: 210 60% 19%;
+    --sidebar-foreground: 0 0% 100%;
+
+    --secondary: 100 11% 69%;
+    --secondary-foreground: 210 60% 19%;
+    
+    --muted: 37 27% 92%;
+    --muted-foreground: 210 24% 34%;
+    
+    --destructive: 356 30% 60%;
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 37 27% 86%;
+    --input: 37 27% 86%;
+    --ring: 210 60% 19%;
+
+    --chart-1: 210 60% 19%;
+    --chart-2: 100 11% 69%;
+    --chart-3: 356 30% 60%;
+    --chart-4: 37 27% 80%;
+    --chart-5: 210 35% 28%;
+
+    --radius: 1rem;
+  }
+ 
+  .dark {
+    --background: 210 62% 14%;
+    --foreground: 37 27% 90%;
+    --card: 210 55% 18%;
+    --card-foreground: 37 27% 90%;
+    --popover: 210 55% 18%;
+    --popover-foreground: 37 27% 90%;
+    --primary: 37 27% 80%;
+    --primary-foreground: 210 60% 19%;
+    --secondary: 100 10% 30%;
+    --secondary-foreground: 37 27% 90%;
+    --muted: 210 35% 22%;
+    --muted-foreground: 37 18% 74%;
+    --accent: 356 24% 48%;
+    --accent-foreground: 37 27% 90%;
+    --destructive: 356 28% 52%;
+    --destructive-foreground: 37 27% 90%;
+    --border: 210 36% 25%;
+    --input: 210 36% 25%;
+    --ring: 37 27% 80%;
+    --sidebar: 210 62% 14%;
+    --sidebar-foreground: 37 27% 90%;
+
+    --chart-1: 37 27% 80%;
+    --chart-2: 100 11% 69%;
+    --chart-3: 356 30% 60%;
+    --chart-4: 37 27% 72%;
+    --chart-5: 0 0% 100%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground antialiased;
+  }
+  button,
+  a,
+  input,
+  textarea,
+  select {
+    @apply transition-all duration-300 ease-out;
+  }
+  ::selection {
+    @apply bg-primary/20 text-foreground;
+  }
+}
+
+@layer components {
+  .premium-surface {
+    @apply rounded-2xl bg-card shadow-sm shadow-primary/10 border border-border;
+  }
+  .premium-page {
+    @apply w-full max-w-none px-4 py-4 sm:px-6 sm:py-6 lg:px-8 lg:py-8 xl:px-10;
+  }
+}

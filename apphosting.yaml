@@ -1,0 +1,11 @@
+# Settings to manage and configure a Firebase App Hosting backend.
+# https://firebase.google.com/docs/app-hosting/configure
+
+runConfig:
+  # Increase this value if you'd like to automatically spin up
+  # more instances in response to increased traffic.
+  maxInstances: 1
+  # Set the timeout for the serverless function to 5 minutes (300 seconds)
+  # to allow for long-running AI generation tasks.
+  timeoutSeconds: 300
+
