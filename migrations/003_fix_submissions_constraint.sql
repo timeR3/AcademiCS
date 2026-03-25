@@ -1,1 +1,0 @@
-ALTER TABLE evaluation_submissions DROP INDEX student_module_unique;
