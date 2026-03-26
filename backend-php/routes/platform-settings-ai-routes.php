@@ -105,6 +105,428 @@ function structuredContentFromPdfDataUris(array $pdfDataUris): array {
     return $structured;
 }
 
+function pdfHashesFromDataUris(array $pdfDataUris): array {
+    if (count($pdfDataUris) === 0) {
+        return [];
+    }
+    $hashes = [];
+    foreach ($pdfDataUris as $uri) {
+        $dataUri = is_string($uri) ? trim($uri) : '';
+        if ($dataUri === '') {
+            continue;
+        }
+        try {
+            $binary = parseDataUri($dataUri);
+        } catch (Throwable $error) {
+            continue;
+        }
+        $hash = hash('sha256', $binary);
+        if ($hash !== '') {
+            $hashes[$hash] = true;
+        }
+    }
+    return array_keys($hashes);
+}
+
+function sourceFileHashesFromIds(array $sourceFileIds): array {
+    $ids = [];
+    foreach ($sourceFileIds as $id) {
+        $numeric = (int)$id;
+        if ($numeric > 0) {
+            $ids[] = $numeric;
+        }
+    }
+    $ids = array_values(array_unique($ids));
+    if (count($ids) === 0) {
+        return [];
+    }
+    $placeholders = inClausePlaceholders($ids);
+    $rows = many(
+        "SELECT sf.file_hash
+         FROM course_source_files csf
+         JOIN shared_files sf ON sf.id = csf.shared_file_id
+         WHERE csf.id IN ({$placeholders})",
+        $ids
+    );
+    $hashes = [];
+    foreach ($rows as $row) {
+        $hash = isset($row['file_hash']) ? trim((string)$row['file_hash']) : '';
+        if ($hash !== '') {
+            $hashes[$hash] = true;
+        }
+    }
+    return array_keys($hashes);
+}
+
+function normalizeAiText(string $value): string {
+    $value = mb_strtolower($value);
+    $normalized = iconv('UTF-8', 'ASCII//TRANSLIT//IGNORE', $value);
+    if (!is_string($normalized)) {
+        $normalized = $value;
+    }
+    return $normalized;
+}
+
+function extractNumericIndicesFromMixed(array $values): array {
+    $indices = [];
+    foreach ($values as $value) {
+        if (is_int($value) && $value >= 0) {
+            $indices[$value] = true;
+            continue;
+        }
+        if (is_float($value) && ((int)$value) === $value && $value >= 0) {
+            $indices[(int)$value] = true;
+            continue;
+        }
+        if (!is_string($value)) {
+            continue;
+        }
+        $matched = preg_match_all('/\d+/', $value, $found);
+        if ($matched !== false && $matched > 0) {
+            foreach ($found[0] as $match) {
+                $parsed = (int)$match;
+                if ($parsed >= 0) {
+                    $indices[$parsed] = true;
+                }
+            }
+        }
+    }
+    $result = array_map('intval', array_keys($indices));
+    sort($result);
+    return $result;
+}
+
+function pickRelevantIndicesForTitle(string $title, array $items, int $maxItems = 6): array {
+    if (count($items) === 0) {
+        return [];
+    }
+    $tokens = preg_split('/[^a-z0-9]+/', normalizeAiText($title)) ?: [];
+    $tokens = array_values(array_filter($tokens, static function ($token): bool {
+        return is_string($token)
+            && mb_strlen($token) >= 4
+            && !in_array($token, ['modulo', 'fundamentos', 'tema', 'bloque', 'unidad'], true);
+    }));
+    $scored = [];
+    foreach ($items as $index => $item) {
+        $itemTitle = isset($item['title']) ? (string)$item['title'] : '';
+        $itemContent = isset($item['content']) ? (string)$item['content'] : '';
+        $source = normalizeAiText($itemTitle . ' ' . $itemContent);
+        $score = 0;
+        foreach ($tokens as $token) {
+            if (str_contains($source, $token)) {
+                $score += 1;
+            }
+        }
+        $scored[] = ['index' => (int)$index, 'score' => $score];
+    }
+    usort($scored, static function (array $a, array $b): int {
+        return $b['score'] <=> $a['score'];
+    });
+    $best = [];
+    foreach ($scored as $entry) {
+        if (($entry['score'] ?? 0) <= 0) {
+            continue;
+        }
+        $best[] = (int)$entry['index'];
+        if (count($best) >= $maxItems) {
+            break;
+        }
+    }
+    if (count($best) > 0) {
+        return $best;
+    }
+    $fallback = [];
+    $limit = min($maxItems, count($items));
+    for ($i = 0; $i < $limit; $i++) {
+        $fallback[] = $i;
+    }
+    return $fallback;
+}
+
+function trimStructuredContentForAi(array $structuredContent, int $maxItems = 60, int $maxCharsPerItem = 2200): array {
+    $result = [];
+    foreach ($structuredContent as $item) {
+        if (!is_array($item)) {
+            continue;
+        }
+        $title = isset($item['title']) ? trim((string)$item['title']) : '';
+        $content = isset($item['content']) ? trim((string)$item['content']) : '';
+        if ($content === '') {
+            continue;
+        }
+        if (mb_strlen($content) > $maxCharsPerItem) {
+            $content = mb_substr($content, 0, $maxCharsPerItem);
+        }
+        $result[] = [
+            'title' => $title !== '' ? $title : 'Bloque',
+            'content' => $content,
+        ];
+        if (count($result) >= $maxItems) {
+            break;
+        }
+    }
+    return $result;
+}
+
+function extractJsonObjectFromText(string $text): ?array {
+    $trimmed = trim($text);
+    if ($trimmed === '') {
+        return null;
+    }
+    $decoded = json_decode($trimmed, true);
+    if (is_array($decoded)) {
+        return $decoded;
+    }
+    $start = strpos($trimmed, '{');
+    $end = strrpos($trimmed, '}');
+    if ($start === false || $end === false || $end <= $start) {
+        return null;
+    }
+    $slice = substr($trimmed, $start, ($end - $start) + 1);
+    if (!is_string($slice) || $slice === '') {
+        return null;
+    }
+    $decodedSlice = json_decode($slice, true);
+    return is_array($decodedSlice) ? $decodedSlice : null;
+}
+
+function callOpenAiJsonResponse(string $model, string $instructions, string $prompt, int $maxOutputTokens = 8192): array {
+    $apiKey = envValue('OPENAI_API_KEY', null);
+    if ($apiKey === null || trim($apiKey) === '') {
+        throw new RuntimeException('OPENAI_API_KEY no está configurada en el backend.');
+    }
+    $payload = [
+        'model' => $model,
+        'instructions' => $instructions,
+        'input' => [[
+            'role' => 'user',
+            'content' => [
+                ['type' => 'input_text', 'text' => $prompt],
+            ],
+        ]],
+        'temperature' => 0.2,
+        'max_output_tokens' => $maxOutputTokens,
+    ];
+    $jsonPayload = json_encode($payload, JSON_UNESCAPED_UNICODE);
+    if ($jsonPayload === false) {
+        throw new RuntimeException('No se pudo preparar la solicitud de IA.');
+    }
+    $context = stream_context_create([
+        'http' => [
+            'method' => 'POST',
+            'header' => "Content-Type: application/json\r\nAuthorization: Bearer {$apiKey}\r\n",
+            'content' => $jsonPayload,
+            'timeout' => 180,
+            'ignore_errors' => true,
+        ],
+    ]);
+    $raw = @file_get_contents('https://api.openai.com/v1/responses', false, $context);
+    if ($raw === false) {
+        $error = error_get_last();
+        $message = is_array($error) && isset($error['message']) ? (string)$error['message'] : '';
+        throw new RuntimeException('No se pudo completar la solicitud con IA.' . ($message !== '' ? ' ' . $message : ''));
+    }
+    $decoded = json_decode($raw, true);
+    if (!is_array($decoded)) {
+        throw new RuntimeException('La IA devolvió una respuesta inválida.');
+    }
+    $errorMessage = isset($decoded['error']['message']) ? trim((string)$decoded['error']['message']) : '';
+    if ($errorMessage !== '') {
+        throw new RuntimeException('OpenAI devolvió un error: ' . $errorMessage);
+    }
+    $outputText = isset($decoded['output_text']) ? trim((string)$decoded['output_text']) : '';
+    if ($outputText === '') {
+        $output = isset($decoded['output']) && is_array($decoded['output']) ? $decoded['output'] : [];
+        $segments = [];
+        foreach ($output as $item) {
+            if (!is_array($item)) {
+                continue;
+            }
+            $parts = isset($item['content']) && is_array($item['content']) ? $item['content'] : [];
+            foreach ($parts as $part) {
+                if (!is_array($part)) {
+                    continue;
+                }
+                $textValue = '';
+                if (isset($part['type']) && $part['type'] === 'output_text') {
+                    $textValue = trim((string)($part['text'] ?? ''));
+                } elseif (isset($part['text']) && is_string($part['text'])) {
+                    $textValue = trim($part['text']);
+                }
+                if ($textValue !== '') {
+                    $segments[] = $textValue;
+                }
+            }
+        }
+        $outputText = trim(implode("\n\n", $segments));
+    }
+    $parsed = extractJsonObjectFromText($outputText);
+    if (!is_array($parsed)) {
+        throw new RuntimeException('La IA no devolvió JSON válido.');
+    }
+    return $parsed;
+}
+
+function trimQuestionnaireContent(string $content, int $maxChars): string {
+    $normalized = trim(preg_replace("/\r\n?/", "\n", $content) ?? $content);
+    if (mb_strlen($normalized) <= $maxChars) {
+        return $normalized;
+    }
+    return trim(mb_substr($normalized, 0, $maxChars));
+}
+
+function normalizeGeneratedQuestionnaire(array $aiResult): array {
+    $rawQuestions = isset($aiResult['questionnaire']) && is_array($aiResult['questionnaire']) ? $aiResult['questionnaire'] : [];
+    $questions = [];
+    foreach ($rawQuestions as $item) {
+        if (!is_array($item)) {
+            continue;
+        }
+        $text = isset($item['text']) ? trim((string)$item['text']) : '';
+        $options = isset($item['options']) && is_array($item['options']) ? $item['options'] : [];
+        $correct = isset($item['correctOptionIndex']) ? (int)$item['correctOptionIndex'] : -1;
+        if ($text === '' || count($options) !== 4 || $correct < 0 || $correct > 3) {
+            continue;
+        }
+        $normalizedOptions = [];
+        foreach ($options as $opt) {
+            $optionText = trim((string)$opt);
+            if ($optionText === '') {
+                $normalizedOptions = [];
+                break;
+            }
+            $normalizedOptions[] = $optionText;
+        }
+        if (count($normalizedOptions) !== 4) {
+            continue;
+        }
+        $questions[] = [
+            'text' => $text,
+            'options' => $normalizedOptions,
+            'correctOptionIndex' => $correct,
+        ];
+    }
+    return $questions;
+}
+
+function fallbackQuestionnaireFromContent(string $content, int $numQuestions, string $difficulty): array {
+    $clean = trimQuestionnaireContent($content, 6000);
+    $lines = preg_split("/[\n\.!\?]+/u", $clean) ?: [];
+    $topics = [];
+    foreach ($lines as $line) {
+        $value = trim(preg_replace('/\s+/', ' ', (string)$line) ?? (string)$line);
+        if ($value === '' || mb_strlen($value) < 20) {
+            continue;
+        }
+        if (mb_strlen($value) > 140) {
+            $value = trim(mb_substr($value, 0, 140)) . '…';
+        }
+        $topics[] = $value;
+        if (count($topics) >= max($numQuestions * 2, 12)) {
+            break;
+        }
+    }
+    if (count($topics) === 0) {
+        $topics = ['conceptos fundamentales del módulo'];
+    }
+    $difficultyLabel = $difficulty === 'high'
+        ? 'de análisis avanzado'
+        : ($difficulty === 'low' ? 'básica' : 'aplicada');
+    $questions = [];
+    for ($i = 0; $i < $numQuestions; $i += 1) {
+        $topic = $topics[$i % count($topics)];
+        $questions[] = [
+            'text' => 'Según el contenido, ¿cuál es la afirmación correcta ' . $difficultyLabel . ' sobre "' . $topic . '"?',
+            'options' => [
+                $topic,
+                'El contenido indica que no tiene relevancia para el módulo.',
+                'El contenido afirma lo contrario de forma explícita.',
+                'No aparece ninguna relación con este tema en el material.',
+            ],
+            'correctOptionIndex' => 0,
+        ];
+    }
+    return $questions;
+}
+
+function generateQuestionnaireRobustly(string $model, string $instructions, string $basePrompt, string $content, int $numQuestions, string $difficulty): array {
+    $contentVariants = [
+        trimQuestionnaireContent($content, 16000),
+        trimQuestionnaireContent($content, 10000),
+        trimQuestionnaireContent($content, 7000),
+        trimQuestionnaireContent($content, 4000),
+    ];
+    $contentVariants = array_values(array_unique(array_filter($contentVariants, static fn(string $value): bool => $value !== '')));
+    $lastError = null;
+    foreach ($contentVariants as $variant) {
+        try {
+            $aiResult = callOpenAiJsonResponse(
+                $model,
+                $instructions,
+                $basePrompt . "\nContenido base:\n" . $variant,
+                4500
+            );
+            $questions = normalizeGeneratedQuestionnaire($aiResult);
+            if (count($questions) > 0) {
+                return array_slice($questions, 0, $numQuestions);
+            }
+        } catch (Throwable $error) {
+            $lastError = $error;
+        }
+    }
+    if ($lastError instanceof Throwable) {
+        error_log('Questionnaire fallback activado: ' . $lastError->getMessage());
+    }
+    return fallbackQuestionnaireFromContent($content, $numQuestions, $difficulty);
+}
+
+function fetchAiSettingsForGeneration(): array {
+    $rows = many('SELECT `key`, `value` FROM app_settings WHERE `key` IN ("aiModel", "adminSyllabusPrompt")');
+    $settings = [];
+    foreach ($rows as $row) {
+        $key = isset($row['key']) ? (string)$row['key'] : '';
+        $value = isset($row['value']) ? (string)$row['value'] : '';
+        if ($key !== '') {
+            $settings[$key] = $value;
+        }
+    }
+    return [
+        'aiModel' => isset($settings['aiModel']) && trim($settings['aiModel']) !== '' ? trim($settings['aiModel']) : 'gpt-4o-mini',
+        'adminSyllabusPrompt' => isset($settings['adminSyllabusPrompt']) && trim($settings['adminSyllabusPrompt']) !== '' ? trim($settings['adminSyllabusPrompt']) : 'Eres un diseñador instruccional experto.',
+    ];
+}
+
+function normalizeCourseDifficulty($raw): string {
+    $difficulty = strtolower(trim((string)$raw));
+    if (in_array($difficulty, ['basic', 'intermediate', 'advanced'], true)) {
+        return $difficulty;
+    }
+    return 'intermediate';
+}
+
+function parseIncludeFundamentals($raw): bool {
+    if (is_bool($raw)) {
+        return $raw;
+    }
+    if (is_int($raw)) {
+        return $raw === 1;
+    }
+    $value = strtolower(trim((string)$raw));
+    if ($value === '1' || $value === 'true' || $value === 'yes' || $value === 'si') {
+        return true;
+    }
+    return false;
+}
+
+function courseDifficultyInstruction(string $difficulty): string {
+    $map = [
+        'basic' => 'Dificultad básica: usa lenguaje claro, fundamentos esenciales, ejemplos introductorios y progresión guiada.',
+        'intermediate' => 'Dificultad intermedia: combina fundamentos con aplicación práctica, casos de uso y decisiones técnicas moderadas.',
+        'advanced' => 'Dificultad avanzada: exige profundidad conceptual, análisis crítico, casos complejos y trade-offs técnicos.',
+    ];
+    return $map[$difficulty] ?? $map['intermediate'];
+}
+
 function handlePlatformSettingsAiRoutes(string $method, string $path): void {
     if ($method === 'GET' && $path === '/api/app-settings') {
         $rows = many('SELECT `key`, `value` FROM app_settings');
@@ -114,7 +536,7 @@ function handlePlatformSettingsAiRoutes(string $method, string $path): void {
         }
         if (!isset($settings['aiModel'])) {
             $model = one('SELECT id FROM ai_models WHERE status = "active" LIMIT 1');
-            $settings['aiModel'] = (string)($model['id'] ?? 'gemini-1.5-pro-latest');
+            $settings['aiModel'] = (string)($model['id'] ?? 'gpt-4o-mini');
         }
         $defaults = [
             'adminSyllabusPrompt' => 'Eres un educador y diseñador de planes de estudio experto.',
@@ -170,7 +592,7 @@ function handlePlatformSettingsAiRoutes(string $method, string $path): void {
     }
 
     if ($method === 'GET' && $path === '/api/ai-config-status') {
-        jsonResponse(200, ['data' => ['isApiKeySet' => envValue('GEMINI_API_KEY') !== null]]);
+        jsonResponse(200, ['data' => ['isApiKeySet' => envValue('OPENAI_API_KEY') !== null]]);
     }
 
     if ($method === 'GET' && $path === '/api/ai-models') {
@@ -227,11 +649,6 @@ function handlePlatformSettingsAiRoutes(string $method, string $path): void {
 
     if ($method === 'POST' && $path === '/api/syllabus/index') {
         $payload = parseBody();
-        $numModules = max(1, (int)($payload['numModules'] ?? 4));
-        $moduleTitles = [];
-        for ($i = 0; $i < $numModules + 1; $i++) {
-            $moduleTitles[] = randomModuleTitle($i);
-        }
         $sourceFileIds = isset($payload['sourceFileIds']) && is_array($payload['sourceFileIds']) ? $payload['sourceFileIds'] : [];
         $pdfDataUris = isset($payload['pdfDataUris']) && is_array($payload['pdfDataUris']) ? $payload['pdfDataUris'] : [];
         $structuredContent = structuredContentFromSourceFileIds($sourceFileIds);
@@ -248,15 +665,112 @@ function handlePlatformSettingsAiRoutes(string $method, string $path): void {
         if (count($structuredContent) === 0) {
             jsonResponse(400, ['error' => 'Debe proporcionar al menos una fuente.']);
         }
-        foreach ($moduleTitles as $idx => $title) {
-            $classificationMap[$title] = [strval($idx % count($structuredContent))];
+        $settings = fetchAiSettingsForGeneration();
+        $targetModules = max(0, (int)($payload['numModules'] ?? 0));
+        $difficulty = normalizeCourseDifficulty($payload['difficulty'] ?? 'intermediate');
+        $includeFundamentals = parseIncludeFundamentals($payload['includeFundamentals'] ?? false);
+        $trimmedStructuredContent = trimStructuredContentForAi($structuredContent);
+        $expectedTotalModules = $targetModules > 0
+            ? ($includeFundamentals ? $targetModules + 1 : $targetModules)
+            : 0;
+        $moduleHint = $targetModules > 0
+            ? (
+                $includeFundamentals
+                    ? 'Genera exactamente ' . $expectedTotalModules . ' títulos en total y el primero debe ser "Fundamentos".'
+                    : 'Genera exactamente ' . $expectedTotalModules . ' títulos temáticos sin incluir un módulo de "Fundamentos".'
+            )
+            : (
+                $includeFundamentals
+                    ? 'Define un número pedagógicamente óptimo de módulos y coloca "Fundamentos" como primer módulo.'
+                    : 'Define un número pedagógicamente óptimo de módulos temáticos sin incluir un módulo de "Fundamentos".'
+            );
+        $instructions =
+            $settings['adminSyllabusPrompt'] . "\n" .
+            courseDifficultyInstruction($difficulty) . "\n" .
+            'Devuelve exclusivamente JSON válido con la forma {"moduleTitles": [...], "classificationMap": {...}}. ' .
+            'Los títulos deben ser semánticos y específicos, sin nombres genéricos. ' .
+            'classificationMap debe mapear cada título a índices enteros del arreglo structuredContent. ' .
+            'Evita que todos los módulos usen exactamente los mismos índices.';
+        $prompt =
+            $moduleHint . "\n" .
+            "structuredContent:\n" .
+            json_encode($trimmedStructuredContent, JSON_UNESCAPED_UNICODE);
+        $aiResult = callOpenAiJsonResponse((string)$settings['aiModel'], $instructions, $prompt, 8192);
+        $rawTitles = isset($aiResult['moduleTitles']) && is_array($aiResult['moduleTitles']) ? $aiResult['moduleTitles'] : [];
+        $moduleTitles = [];
+        foreach ($rawTitles as $title) {
+            $cleanTitle = trim((string)$title);
+            if ($cleanTitle === '') {
+                continue;
+            }
+            $moduleTitles[$cleanTitle] = true;
+        }
+        $moduleTitles = array_values(array_keys($moduleTitles));
+        if (count($moduleTitles) === 0) {
+            $moduleTitles = $includeFundamentals ? ['Fundamentos'] : ['Módulo Temático 1'];
+        }
+        if ($includeFundamentals) {
+            if (strcasecmp((string)$moduleTitles[0], 'Fundamentos') !== 0) {
+                array_unshift($moduleTitles, 'Fundamentos');
+                $moduleTitles = array_values(array_unique($moduleTitles));
+            }
+        } else {
+            $moduleTitles = array_values(array_filter($moduleTitles, static function ($title): bool {
+                return strcasecmp((string)$title, 'Fundamentos') !== 0;
+            }));
+            if (count($moduleTitles) === 0) {
+                $moduleTitles = ['Módulo Temático 1'];
+            }
+        }
+        if ($targetModules > 0) {
+            $expected = $expectedTotalModules;
+            if (count($moduleTitles) > $expected) {
+                $moduleTitles = array_slice($moduleTitles, 0, $expected);
+            }
+            $fill = $includeFundamentals ? 2 : 1;
+            while (count($moduleTitles) < $expected) {
+                $candidate = 'Módulo Temático ' . $fill;
+                if (!in_array($candidate, $moduleTitles, true)) {
+                    $moduleTitles[] = $candidate;
+                }
+                $fill += 1;
+            }
+        }
+        $rawMap = isset($aiResult['classificationMap']) && is_array($aiResult['classificationMap']) ? $aiResult['classificationMap'] : [];
+        $used = [];
+        foreach ($moduleTitles as $title) {
+            $rawIndices = [];
+            if (isset($rawMap[$title]) && is_array($rawMap[$title])) {
+                $rawIndices = $rawMap[$title];
+            }
+            $parsed = extractNumericIndicesFromMixed($rawIndices);
+            $valid = [];
+            foreach ($parsed as $index) {
+                if ($index >= 0 && $index < count($structuredContent)) {
+                    $valid[] = $index;
+                }
+            }
+            if (count($valid) === 0) {
+                $valid = pickRelevantIndicesForTitle($title, $structuredContent, 6);
+            }
+            $nonUsed = array_values(array_filter($valid, static function ($index) use ($used): bool {
+                return !isset($used[$index]);
+            }));
+            $final = count($nonUsed) > 0 ? $nonUsed : $valid;
+            if (count($final) === 0) {
+                $final = [0];
+            }
+            foreach ($final as $idx) {
+                $used[$idx] = true;
+            }
+            $classificationMap[$title] = array_map(static fn($value): string => (string)$value, $final);
         }
         jsonResponse(200, ['data' => [
             'moduleTitles' => $moduleTitles,
             'structuredContent' => $structuredContent,
             'classificationMap' => $classificationMap,
-            'pdfHashes' => [],
-            'promptSource' => 'php-fallback',
+            'pdfHashes' => array_values(array_unique(array_merge(sourceFileHashesFromIds($sourceFileIds), pdfHashesFromDataUris($pdfDataUris)))),
+            'promptSource' => 'admin',
         ]]);
     }
 
@@ -267,24 +781,56 @@ function handlePlatformSettingsAiRoutes(string $method, string $path): void {
             jsonResponse(400, ['error' => 'moduleTitle is required.']);
         }
         $structuredContent = isset($payload['structuredContent']) && is_array($payload['structuredContent']) ? $payload['structuredContent'] : [];
-        $intro = 'Introducción del módulo ' . $moduleTitle;
-        if (count($structuredContent) > 0) {
-            $intro = 'Este módulo desarrolla ' . $moduleTitle . ' a partir de fuentes disponibles.';
+        $classificationMap = isset($payload['classificationMap']) && is_array($payload['classificationMap']) ? $payload['classificationMap'] : [];
+        $mappedRaw = isset($classificationMap[$moduleTitle]) && is_array($classificationMap[$moduleTitle]) ? $classificationMap[$moduleTitle] : [];
+        $mappedIndices = extractNumericIndicesFromMixed($mappedRaw);
+        $selected = [];
+        foreach ($mappedIndices as $index) {
+            if ($index >= 0 && $index < count($structuredContent) && is_array($structuredContent[$index])) {
+                $selected[] = $structuredContent[$index];
+            }
         }
+        if (count($selected) === 0) {
+            $fallbackIndices = pickRelevantIndicesForTitle($moduleTitle, $structuredContent, 8);
+            foreach ($fallbackIndices as $index) {
+                if ($index >= 0 && $index < count($structuredContent) && is_array($structuredContent[$index])) {
+                    $selected[] = $structuredContent[$index];
+                }
+            }
+        }
+        $selected = trimStructuredContentForAi($selected, 10, 2600);
+        if (count($selected) === 0) {
+            jsonResponse(400, ['error' => 'No hay contenido suficiente para generar el módulo.']);
+        }
+        $settings = fetchAiSettingsForGeneration();
+        $difficulty = normalizeCourseDifficulty($payload['difficulty'] ?? 'intermediate');
+        $instructions =
+            'Eres un experto diseñador instruccional. Genera el contenido del módulo solicitado en español, usando el material fuente solo como base de análisis. ' .
+            'Sintetiza, estructura y redacta de forma original. Evita copiar texto literal del contenido fuente. ' .
+            courseDifficultyInstruction($difficulty) . ' ' .
+            'Devuelve exclusivamente JSON válido con la forma {"introduction":"...","syllabus":[{"title":"...","content":"..."}]}.';
+        $prompt =
+            "Título del módulo: {$moduleTitle}\n\n" .
+            "Nivel de dificultad del curso: {$difficulty}\n\n" .
+            "Contenido fuente clasificado:\n" .
+            json_encode($selected, JSON_UNESCAPED_UNICODE);
+        $aiResult = callOpenAiJsonResponse((string)$settings['aiModel'], $instructions, $prompt, 5000);
+        $intro = isset($aiResult['introduction']) ? trim((string)$aiResult['introduction']) : '';
+        $rawSyllabus = isset($aiResult['syllabus']) && is_array($aiResult['syllabus']) ? $aiResult['syllabus'] : [];
         $syllabus = [];
-        $limit = min(4, max(1, count($structuredContent)));
-        if ($limit === 0) {
-            $limit = 1;
-            $structuredContent = [['title' => 'Base', 'content' => 'Contenido base']];
+        foreach ($rawSyllabus as $item) {
+            if (!is_array($item)) {
+                continue;
+            }
+            $title = isset($item['title']) ? trim((string)$item['title']) : '';
+            $content = isset($item['content']) ? trim((string)$item['content']) : '';
+            if ($title === '' || $content === '') {
+                continue;
+            }
+            $syllabus[] = ['title' => $title, 'content' => $content];
         }
-        for ($i = 0; $i < $limit; $i++) {
-            $item = $structuredContent[$i] ?? ['title' => 'Tema ' . ($i + 1), 'content' => 'Contenido del tema'];
-            $title = is_array($item) && isset($item['title']) ? (string)$item['title'] : 'Tema ' . ($i + 1);
-            $content = is_array($item) && isset($item['content']) ? (string)$item['content'] : 'Contenido del tema';
-            $syllabus[] = [
-                'title' => $title,
-                'content' => mb_substr($content, 0, 900),
-            ];
+        if ($intro === '' || count($syllabus) === 0) {
+            jsonResponse(400, ['error' => 'No se pudo generar el temario del módulo.']);
         }
         jsonResponse(200, ['data' => [
             'introduction' => $intro,
@@ -301,18 +847,25 @@ function handlePlatformSettingsAiRoutes(string $method, string $path): void {
             jsonResponse(400, ['error' => 'content is required.']);
         }
         $numQuestions = max(1, (int)($payload['numQuestions'] ?? 10));
-        $questions = [];
-        for ($i = 0; $i < $numQuestions; $i++) {
-            $questions[] = [
-                'text' => 'Pregunta ' . ($i + 1) . ': ¿Cuál es la idea clave del contenido?',
-                'options' => [
-                    'Resumen conceptual principal',
-                    'Detalle secundario',
-                    'Dato no relacionado',
-                    'Suposición incorrecta',
-                ],
-                'correctOptionIndex' => 0,
-            ];
+        $difficultyRaw = trim((string)($payload['difficulty'] ?? 'medium'));
+        $difficulty = in_array($difficultyRaw, ['low', 'medium', 'high'], true) ? $difficultyRaw : 'medium';
+        $difficultyPrompt = [
+            'low' => 'Genera preguntas de dificultad baja, centradas en definiciones, identificación de conceptos y comprensión básica.',
+            'medium' => 'Genera preguntas de dificultad media, enfocadas en aplicación de conceptos y relaciones entre ideas.',
+            'high' => 'Genera preguntas de dificultad alta, orientadas a análisis crítico, inferencia y resolución de casos.',
+        ];
+        $settings = fetchAiSettingsForGeneration();
+        $instructions =
+            'Eres un evaluador pedagógico estricto. Genera cuestionarios de opción múltiple en español. ' .
+            'Cada pregunta debe tener exactamente 4 opciones y una única respuesta correcta. ' .
+            $difficultyPrompt[$difficulty] . ' ' .
+            'Devuelve exclusivamente JSON válido con la forma {"questionnaire":[{"text":"...","options":["...","...","...","..."],"correctOptionIndex":0}]}.';
+        $prompt =
+            "Genera {$numQuestions} preguntas de opción múltiple.\n" .
+            "Nivel de dificultad: {$difficulty}.";
+        $questions = generateQuestionnaireRobustly((string)$settings['aiModel'], $instructions, $prompt, $content, $numQuestions, $difficulty);
+        if (count($questions) === 0) {
+            jsonResponse(400, ['error' => 'No se pudo generar el cuestionario.']);
         }
         jsonResponse(200, ['data' => ['questionnaire' => $questions]]);
     }

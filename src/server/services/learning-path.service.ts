@@ -1,5 +1,5 @@
 import { ai } from '@/ai/genkit';
-import { googleAI } from '@genkit-ai/googleai';
+import { openAI } from '@genkit-ai/compat-oai/openai';
 import { getPool, query } from '@/lib/db';
 import type { CourseLevel, Question, SyllabusSection } from '@/types';
 import { z } from 'zod';
@@ -12,8 +12,35 @@ type SharedFileRow = RowDataPacket & { id: number };
 type GenerateSingleModuleSyllabusPayload = {
   moduleTitle: string;
   structuredContent: unknown[];
-  classificationMap: Record<string, string[]>;
+  classificationMap: Record<string, Array<string | number>>;
 };
+
+function normalizeText(value: string): string {
+  return value
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase();
+}
+
+function extractNumericIndices(values: Array<string | number>): number[] {
+  const result = new Set<number>();
+  for (const value of values) {
+    if (typeof value === 'number' && Number.isInteger(value) && value >= 0) {
+      result.add(value);
+      continue;
+    }
+    if (typeof value === 'string') {
+      const matches = value.match(/\d+/g) || [];
+      for (const match of matches) {
+        const parsed = Number(match);
+        if (Number.isInteger(parsed) && parsed >= 0) {
+          result.add(parsed);
+        }
+      }
+    }
+  }
+  return Array.from(result).sort((a, b) => a - b);
+}
 
 function normalizeContentItem(item: unknown): string {
   if (typeof item === 'string') {
@@ -33,22 +60,36 @@ function normalizeContentItem(item: unknown): string {
 
 function buildModuleInputText(payload: GenerateSingleModuleSyllabusPayload): string {
   const mappedIndices = payload.classificationMap[payload.moduleTitle] || [];
-  const normalizedIndices = mappedIndices
-    .map((indexValue) => Number(indexValue))
-    .filter((indexValue) => Number.isInteger(indexValue) && indexValue >= 0);
+  const normalizedIndices = extractNumericIndices(mappedIndices);
+
+  const titleTokens = normalizeText(payload.moduleTitle)
+    .split(/[^a-z0-9]+/)
+    .filter((token) => token.length >= 4 && !['modulo', 'fundamentos', 'tema', 'bloque', 'unidad'].includes(token));
+
+  const keywordMatchedIndices = payload.structuredContent
+    .map((contentItem, indexValue) => {
+      const sourceText = normalizeText(normalizeContentItem(contentItem));
+      const score = titleTokens.reduce((acc, token) => acc + (sourceText.includes(token) ? 1 : 0), 0);
+      return { indexValue, score };
+    })
+    .filter((entry) => entry.score > 0)
+    .sort((a, b) => b.score - a.score)
+    .map((entry) => entry.indexValue);
 
   const selectedContent = normalizedIndices.length > 0
     ? normalizedIndices
         .map((indexValue) => payload.structuredContent[indexValue])
         .filter((item) => typeof item !== 'undefined')
-    : payload.structuredContent;
+    : (keywordMatchedIndices.length > 0
+        ? keywordMatchedIndices.slice(0, 6).map((indexValue) => payload.structuredContent[indexValue])
+        : payload.structuredContent.slice(0, Math.min(6, payload.structuredContent.length)));
 
   return selectedContent.map((item, indexValue) => `Fuente ${indexValue + 1}:\n${normalizeContentItem(item)}`).join('\n\n');
 }
 
 async function fetchAiModelForSyllabus(): Promise<string> {
   const [rows] = await query('SELECT `value` FROM app_settings WHERE `key` = "aiModel" LIMIT 1', []) as [AppSettingRow[], unknown];
-  return rows?.[0]?.value || 'gemini-1.5-pro-latest';
+  return rows?.[0]?.value || 'gpt-4o-mini';
 }
 
 export async function saveLearningPathService(payload: { courseId: number; learningPath: CourseLevel[]; sourceFileHashes: string[] }): Promise<{ updatedLearningPath: CourseLevel[] }> {
@@ -149,8 +190,8 @@ export async function generateSingleModuleSyllabusService(payload: GenerateSingl
   });
 
   const { output } = await ai.generate({
-    model: googleAI.model(modelId),
-    system: `Eres un experto diseñador instruccional. Genera el contenido del módulo solicitado en español, fiel al material fuente. Devuelve introducción y temario detallado.`,
+    model: openAI.model(modelId),
+    system: `Eres un experto diseñador instruccional. Genera el contenido del módulo solicitado en español, usando el material fuente solo como base de análisis. Sintetiza, estructura y redacta de forma original. Evita copiar texto literal del contenido fuente. Devuelve introducción y temario detallado.`,
     prompt: `Título del módulo: ${payload.moduleTitle}\n\nContenido fuente:\n${inputText}`,
     output: { schema },
   });

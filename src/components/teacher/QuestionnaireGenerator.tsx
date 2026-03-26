@@ -24,10 +24,12 @@ interface QuestionnaireGeneratorProps {
     onQuestionnaireGenerated: (levelId: string, questionnaire: Question[], questionsToDisplay: number) => void;
 }
 
+type QuestionDifficulty = 'low' | 'medium' | 'high';
 
 export function QuestionnaireGenerator({ level, isLoading, onQuestionnaireGenerated }: QuestionnaireGeneratorProps) {
   const [numQuestionsToGenerate, setNumQuestionsToGenerate] = useState(20);
   const [numQuestionsToDisplay, setNumQuestionsToDisplay] = useState(10);
+  const [difficulty, setDifficulty] = useState<QuestionDifficulty>('medium');
   const [generatedQuestions, setGeneratedQuestions] = useState<Question[]>([]);
   const [isGenerating, setIsGenerating] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
@@ -61,6 +63,7 @@ export function QuestionnaireGenerator({ level, isLoading, onQuestionnaireGenera
       const result = await apiPost<{ questionnaire: Question[] }>('/api/questionnaire/generate', {
           content: syllabusContent, 
           numQuestions: numQuestionsToGenerate,
+          difficulty,
       });
       const newQuestions = result.questionnaire;
       setGeneratedQuestions(newQuestions);
@@ -170,6 +173,27 @@ export function QuestionnaireGenerator({ level, isLoading, onQuestionnaireGenera
                 min="1"
                 disabled={isLoading || isGenerating || isSaving}
                 />
+            </div>
+            <div className="rounded-2xl border bg-card p-4">
+                <Label className="mb-3 block font-medium">Dificultad</Label>
+                <RadioGroup
+                    value={difficulty}
+                    onValueChange={(value) => setDifficulty(value as QuestionDifficulty)}
+                    className="flex flex-wrap gap-4"
+                >
+                    <div className="flex items-center gap-2">
+                        <RadioGroupItem value="low" id={`difficulty-low-${level.id}`} />
+                        <Label htmlFor={`difficulty-low-${level.id}`}>Baja</Label>
+                    </div>
+                    <div className="flex items-center gap-2">
+                        <RadioGroupItem value="medium" id={`difficulty-medium-${level.id}`} />
+                        <Label htmlFor={`difficulty-medium-${level.id}`}>Media</Label>
+                    </div>
+                    <div className="flex items-center gap-2">
+                        <RadioGroupItem value="high" id={`difficulty-high-${level.id}`} />
+                        <Label htmlFor={`difficulty-high-${level.id}`}>Alta</Label>
+                    </div>
+                </RadioGroup>
             </div>
              <Button onClick={handleGenerate} disabled={isLoading || isGenerating || isSaving || !syllabusContent.trim()} className="w-full md:w-auto md:justify-self-end">
               {isGenerating ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : (generatedQuestions.length > 0 ? <RotateCcw className="mr-2 h-4 w-4" /> : <Sparkles className="mr-2 h-4 w-4" />)}

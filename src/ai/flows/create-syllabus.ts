@@ -1,6 +1,6 @@
 import {ai} from '@/ai/genkit';
 import {z} from 'zod';
-import { googleAI } from '@genkit-ai/googleai';
+import { openAI } from '@genkit-ai/compat-oai/openai';
  
 export const CreateSyllabusInputSchema = z.object({
   pdfHashes: z.array(z.string()).optional().default([]),
@@ -58,7 +58,7 @@ const createSyllabusFlow = ai.defineFlow(
       `\n${moduleInstruction}`;
     const content = fullTranscribedText?.trim() || 'Sin contenido de referencia.';
     const { output } = await ai.generate({
-      model: googleAI.model(aiModel || 'gemini-1.5-pro-latest'),
+      model: openAI.model(aiModel || 'gpt-4o-mini'),
       system: systemPrompt,
       prompt: `Genera una ruta de aprendizaje completa a partir del siguiente contenido:\n\n${content}`,
       output: {

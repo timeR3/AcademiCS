@@ -1,4 +1,7 @@
 # AcademyCS Visual System Rules
+## Importante
+- Nunca usar node.js ni next.js
+- Siempre usar php para el backend
 
 ## Mandatory Visual Identity
 - Use only this official palette:

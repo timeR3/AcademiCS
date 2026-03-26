@@ -36,6 +36,46 @@ interface CourseContextType {
 
 const CourseContext = createContext<CourseContextType | undefined>(undefined);
 
+function hasDetailedCourseData(course: Course): boolean {
+  if (course.levels.some(level =>
+    level.introduction.trim() !== '' ||
+    level.syllabus.length > 0 ||
+    level.questionnaire.length > 0 ||
+    level.questionsToDisplay > 0
+  )) {
+    return true;
+  }
+  if (course.sourceFiles.length > 0 || course.bibliography.length > 0) {
+    return true;
+  }
+  if ((course.studentProgress?.length ?? 0) > 0) {
+    return true;
+  }
+  return false;
+}
+
+function mergePreservingDetailedCourses(previous: Course[], next: Course[]): Course[] {
+  const previousById = new Map(previous.map(course => [course.id, course]));
+  return next.map(course => {
+    const existing = previousById.get(course.id);
+    if (!existing) {
+      return course;
+    }
+    if (!hasDetailedCourseData(course) && hasDetailedCourseData(existing)) {
+      return {
+        ...course,
+        levels: existing.levels,
+        sourceFiles: existing.sourceFiles,
+        bibliography: existing.bibliography,
+        students: existing.students,
+        completedStudentIds: existing.completedStudentIds,
+        studentProgress: existing.studentProgress,
+      };
+    }
+    return course;
+  });
+}
+
 export function CourseProvider({ children }: { children: ReactNode }) {
   const [courses, setCourses] = useState<Course[]>([]);
   const [archivedCourses, setArchivedCourses] = useState<Course[]>([]);
@@ -76,9 +116,9 @@ export function CourseProvider({ children }: { children: ReactNode }) {
                 apiGet<Course[]>(`/api/courses?role=teacher&userId=${teacherId}&status=archived&includeDetails=false`),
                 apiGet<Course[]>(`/api/courses?role=teacher&userId=${teacherId}&status=suspended&includeDetails=false`)
             ]);
-            setCourses(active);
-            setArchivedCourses(archived);
-            setSuspendedCourses(suspended);
+            setCourses(previous => mergePreservingDetailedCourses(previous, active));
+            setArchivedCourses(previous => mergePreservingDetailedCourses(previous, archived));
+            setSuspendedCourses(previous => mergePreservingDetailedCourses(previous, suspended));
         } else if (activeRole === 'student'){
             teacherLookupLoadedRef.current = false;
             adminLookupLoadedRef.current = false;
@@ -86,7 +126,7 @@ export function CourseProvider({ children }: { children: ReactNode }) {
             setAllCategories([]);
             const studentId = encodeURIComponent(user.id);
             const studentCourses = await apiGet<Course[]>(`/api/courses?role=student&userId=${studentId}&includeDetails=false`);
-            setCourses(studentCourses);
+            setCourses(previous => mergePreservingDetailedCourses(previous, studentCourses));
             setArchivedCourses([]);
             setSuspendedCourses([]);
         } else if (activeRole === 'admin') {
@@ -104,9 +144,9 @@ export function CourseProvider({ children }: { children: ReactNode }) {
               apiGet<Course[]>('/api/courses?role=admin&status=archived&includeDetails=false'),
               apiGet<Course[]>('/api/courses?role=admin&status=suspended&includeDetails=false'),
             ]);
-            setCourses(active);
-            setArchivedCourses(archived);
-            setSuspendedCourses(suspended);
+            setCourses(previous => mergePreservingDetailedCourses(previous, active));
+            setArchivedCourses(previous => mergePreservingDetailedCourses(previous, archived));
+            setSuspendedCourses(previous => mergePreservingDetailedCourses(previous, suspended));
         }
     } catch (error) {
         console.error("Error refreshing courses:", error);

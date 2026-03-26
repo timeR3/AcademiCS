@@ -4,42 +4,65 @@ declare(strict_types=1);
 function contentAiModelId(): string {
     $row = one('SELECT `value` FROM app_settings WHERE `key` = "aiModel" LIMIT 1');
     $value = is_array($row) && isset($row['value']) ? trim((string)$row['value']) : '';
-    return $value !== '' ? $value : 'gemini-1.5-pro-latest';
+    return $value !== '' ? $value : 'gpt-4o-mini';
 }
 
-function extractGeminiTextParts(array $response): string {
-    $candidates = isset($response['candidates']) && is_array($response['candidates']) ? $response['candidates'] : [];
-    if (count($candidates) === 0) {
-        return '';
+function extractOpenAiTextFromResponse(array $response): string {
+    $outputText = isset($response['output_text']) ? trim((string)$response['output_text']) : '';
+    if ($outputText !== '') {
+        return $outputText;
     }
-    $parts = $candidates[0]['content']['parts'] ?? [];
-    if (!is_array($parts)) {
-        return '';
-    }
+    $output = isset($response['output']) && is_array($response['output']) ? $response['output'] : [];
     $segments = [];
-    foreach ($parts as $part) {
-        if (!is_array($part)) {
+    foreach ($output as $item) {
+        if (!is_array($item)) {
             continue;
         }
-        $text = isset($part['text']) ? trim((string)$part['text']) : '';
-        if ($text !== '') {
-            $segments[] = $text;
+        $contents = isset($item['content']) && is_array($item['content']) ? $item['content'] : [];
+        foreach ($contents as $contentPart) {
+            if (!is_array($contentPart)) {
+                continue;
+            }
+            $text = '';
+            if (isset($contentPart['type']) && $contentPart['type'] === 'output_text') {
+                $text = trim((string)($contentPart['text'] ?? ''));
+            } elseif (isset($contentPart['text']) && is_string($contentPart['text'])) {
+                $text = trim($contentPart['text']);
+            }
+            if ($text !== '') {
+                $segments[] = $text;
+            }
         }
     }
-    return trim(implode("\n\n", $segments));
+    if (count($segments) > 0) {
+        return trim(implode("\n\n", $segments));
+    }
+    $choices = isset($response['choices']) && is_array($response['choices']) ? $response['choices'] : [];
+    if (count($choices) > 0) {
+        $messageContent = $choices[0]['message']['content'] ?? '';
+        if (is_string($messageContent) && trim($messageContent) !== '') {
+            return trim($messageContent);
+        }
+    }
+    return '';
 }
 
-function extractGeminiUsageMetadata(array $response): array {
-    $usage = isset($response['usageMetadata']) && is_array($response['usageMetadata']) ? $response['usageMetadata'] : [];
-    $inputTokens = isset($usage['promptTokenCount']) ? (int)$usage['promptTokenCount'] : 0;
+function extractOpenAiUsageMetadata(array $response): array {
+    $usage = isset($response['usage']) && is_array($response['usage']) ? $response['usage'] : [];
+    $inputTokens = 0;
     $outputTokens = 0;
-    if (isset($usage['candidatesTokenCount'])) {
-        $outputTokens = (int)$usage['candidatesTokenCount'];
-    } elseif (isset($usage['outputTokenCount'])) {
-        $outputTokens = (int)$usage['outputTokenCount'];
-    } elseif (isset($usage['totalTokenCount'])) {
-        $total = (int)$usage['totalTokenCount'];
-        $outputTokens = max(0, $total - $inputTokens);
+    if (isset($usage['input_tokens'])) {
+        $inputTokens = (int)$usage['input_tokens'];
+    } elseif (isset($usage['prompt_tokens'])) {
+        $inputTokens = (int)$usage['prompt_tokens'];
+    }
+    if (isset($usage['output_tokens'])) {
+        $outputTokens = (int)$usage['output_tokens'];
+    } elseif (isset($usage['completion_tokens'])) {
+        $outputTokens = (int)$usage['completion_tokens'];
+    }
+    if ($outputTokens <= 0 && isset($usage['total_tokens'])) {
+        $outputTokens = max(0, (int)$usage['total_tokens'] - $inputTokens);
     }
     return [
         'inputTokens' => max(0, $inputTokens),
@@ -48,23 +71,23 @@ function extractGeminiUsageMetadata(array $response): array {
 }
 
 function transcribePdfFromBase64(string $base64Content): array {
-    $apiKey = envValue('GEMINI_API_KEY', null);
+    $apiKey = envValue('OPENAI_API_KEY', null);
     if ($apiKey === null || trim($apiKey) === '') {
-        throw new RuntimeException('GEMINI_API_KEY no está configurada en el backend.');
+        throw new RuntimeException('OPENAI_API_KEY no está configurada en el backend.');
     }
     $model = contentAiModelId();
-    $url = 'https://generativelanguage.googleapis.com/v1beta/models/' . rawurlencode($model) . ':generateContent?key=' . rawurlencode($apiKey);
+    $url = 'https://api.openai.com/v1/responses';
     $payload = [
-        'contents' => [[
-            'parts' => [
-                ['text' => 'Extrae el texto completo del PDF. Devuelve solo texto plano, sin explicaciones ni markdown.'],
-                ['inline_data' => ['mime_type' => 'application/pdf', 'data' => $base64Content]],
+        'model' => $model,
+        'input' => [[
+            'role' => 'user',
+            'content' => [
+                ['type' => 'input_text', 'text' => 'Extrae el texto completo del PDF. Devuelve solo texto plano, sin explicaciones ni markdown.'],
+                ['type' => 'input_file', 'filename' => 'document.pdf', 'file_data' => 'data:application/pdf;base64,' . $base64Content],
             ],
         ]],
-        'generationConfig' => [
-            'temperature' => 0,
-            'maxOutputTokens' => 8192,
-        ],
+        'temperature' => 0,
+        'max_output_tokens' => 8192,
     ];
     $jsonPayload = json_encode($payload, JSON_UNESCAPED_UNICODE);
     if ($jsonPayload === false) {
@@ -73,7 +96,7 @@ function transcribePdfFromBase64(string $base64Content): array {
     $context = stream_context_create([
         'http' => [
             'method' => 'POST',
-            'header' => "Content-Type: application/json\r\n",
+            'header' => "Content-Type: application/json\r\nAuthorization: Bearer {$apiKey}\r\n",
             'content' => $jsonPayload,
             'timeout' => 180,
             'ignore_errors' => true,
@@ -83,21 +106,21 @@ function transcribePdfFromBase64(string $base64Content): array {
     if ($raw === false) {
         $error = error_get_last();
         $message = is_array($error) && isset($error['message']) ? (string)$error['message'] : '';
-        throw new RuntimeException('No se pudo transcribir el archivo con Gemini.' . ($message !== '' ? ' ' . $message : ''));
+        throw new RuntimeException('No se pudo transcribir el archivo con OpenAI.' . ($message !== '' ? ' ' . $message : ''));
     }
     $decoded = json_decode($raw, true);
     if (!is_array($decoded)) {
         throw new RuntimeException('La IA devolvió una respuesta inválida al transcribir.');
     }
-    $text = extractGeminiTextParts($decoded);
+    $errorMessage = isset($decoded['error']['message']) ? trim((string)$decoded['error']['message']) : '';
+    if ($errorMessage !== '') {
+        throw new RuntimeException('OpenAI devolvió un error: ' . $errorMessage);
+    }
+    $text = extractOpenAiTextFromResponse($decoded);
     if ($text === '') {
-        $blockReason = $decoded['promptFeedback']['blockReason'] ?? '';
-        if (is_string($blockReason) && trim($blockReason) !== '') {
-            throw new RuntimeException('La IA bloqueó la transcripción: ' . $blockReason);
-        }
         throw new RuntimeException('La IA no devolvió contenido de transcripción.');
     }
-    $usage = extractGeminiUsageMetadata($decoded);
+    $usage = extractOpenAiUsageMetadata($decoded);
     return [
         'text' => $text,
         'inputTokens' => $usage['inputTokens'],
@@ -147,7 +170,72 @@ function splitTranscriptIntoChunks(string $text, int $maxChars = 8000): array {
     return $chunks;
 }
 
-function buildStructuredTranscript(array $chunks): array {
+function sharedFilesProcessedChunkColumn(): string {
+    static $column = null;
+    if (is_string($column)) {
+        return $column;
+    }
+    $column = '';
+    $rows = many('SHOW COLUMNS FROM shared_files');
+    foreach ($rows as $row) {
+        $name = trim((string)($row['Field'] ?? ''));
+        if ($name === 'processed_chunk' || $name === 'processed_chunks') {
+            $column = $name;
+            break;
+        }
+    }
+    return $column;
+}
+
+function fileTranscriptsHasFileName(): bool {
+    static $hasColumn = null;
+    if (is_bool($hasColumn)) {
+        return $hasColumn;
+    }
+    $hasColumn = false;
+    $rows = many('SHOW COLUMNS FROM file_transcripts');
+    foreach ($rows as $row) {
+        $name = trim((string)($row['Field'] ?? ''));
+        if ($name === 'file_name') {
+            $hasColumn = true;
+            break;
+        }
+    }
+    return $hasColumn;
+}
+
+function normalizeChunkTitleLine(string $line): string {
+    $line = trim(preg_replace('/\s+/', ' ', $line) ?? $line);
+    if ($line === '') {
+        return '';
+    }
+    $line = preg_replace('/^[\d\.\-\)\s]+/u', '', $line) ?? $line;
+    $line = trim($line, "-–—•:;,. \t\n\r\0\x0B");
+    if ($line === '') {
+        return '';
+    }
+    if (mb_strlen($line) > 90) {
+        $line = trim(mb_substr($line, 0, 90)) . '…';
+    }
+    return $line;
+}
+
+function buildChunkTitle(string $content, int $index, string $fileName): string {
+    $lines = preg_split("/\n+/", trim($content)) ?: [];
+    foreach ($lines as $line) {
+        $title = normalizeChunkTitleLine((string)$line);
+        if ($title !== '') {
+            return $title;
+        }
+    }
+    $baseFileName = trim(pathinfo($fileName, PATHINFO_FILENAME));
+    if ($baseFileName !== '') {
+        return $baseFileName . ' - Sección ' . ($index + 1);
+    }
+    return 'Sección ' . ($index + 1);
+}
+
+function buildStructuredTranscript(array $chunks, string $fileName): array {
     $structured = [];
     foreach ($chunks as $index => $chunk) {
         $content = trim((string)$chunk);
@@ -155,7 +243,7 @@ function buildStructuredTranscript(array $chunks): array {
             continue;
         }
         $structured[] = [
-            'title' => 'Bloque ' . ($index + 1),
+            'title' => buildChunkTitle($content, $index, $fileName),
             'content' => $content,
         ];
     }
@@ -190,21 +278,25 @@ function distributeTokensByChunk(array $chunks, int $totalTokens): array {
     return $distribution;
 }
 
-function persistTranscriptForHash(int $sharedFileId, string $fileHash, string $base64Content): void {
-    $transcription = transcribePdfFromBase64($base64Content);
+function persistTranscriptForHash(int $sharedFileId, string $fileHash, string $base64Content, string $fileName): void {
+    try {
+        $transcription = transcribePdfFromBase64($base64Content);
+    } catch (Throwable $error) {
+        throw new RuntimeException('Paso 4/6: transcribiendo el archivo. ' . trim((string)$error->getMessage()), 0, $error);
+    }
     $transcript = trim((string)($transcription['text'] ?? ''));
     $inputTokens = max(0, (int)($transcription['inputTokens'] ?? 0));
     $outputTokens = max(0, (int)($transcription['outputTokens'] ?? 0));
     $chunks = splitTranscriptIntoChunks($transcript);
     if (count($chunks) === 0) {
-        throw new RuntimeException('La transcripción está vacía.');
+        throw new RuntimeException('Paso 5/6: separando el contenido. La transcripción está vacía.');
     }
     $inputDistribution = distributeTokensByChunk($chunks, $inputTokens);
     $outputDistribution = distributeTokensByChunk($chunks, $outputTokens);
-    $structured = buildStructuredTranscript($chunks);
+    $structured = buildStructuredTranscript($chunks, $fileName);
     $structuredJson = json_encode($structured, JSON_UNESCAPED_UNICODE);
     if ($structuredJson === false) {
-        throw new RuntimeException('No se pudo serializar la transcripción.');
+        throw new RuntimeException('Paso 5/6: separando el contenido. No se pudo estructurar la transcripción.');
     }
     $pdo = db();
     $pdo->beginTransaction();
@@ -217,70 +309,111 @@ function persistTranscriptForHash(int $sharedFileId, string $fileHash, string $b
                 [$fileHash, $index, $chunk, $inputDistribution[$index] ?? 0, $outputDistribution[$index] ?? 0]
             );
         }
-        execSql(
-            'INSERT INTO file_transcripts (file_hash, structured_content, input_tokens, output_tokens, created_at) VALUES (?, ?, ?, ?, NOW())',
-            [$fileHash, $structuredJson, $inputTokens, $outputTokens]
-        );
-        execSql(
-            'UPDATE shared_files SET status = "completed", total_chunks = ? WHERE id = ?',
-            [count($chunks), $sharedFileId]
-        );
+        if (fileTranscriptsHasFileName()) {
+            execSql(
+                'INSERT INTO file_transcripts (file_hash, file_name, structured_content, input_tokens, output_tokens, created_at) VALUES (?, ?, ?, ?, ?, NOW())',
+                [$fileHash, $fileName, $structuredJson, $inputTokens, $outputTokens]
+            );
+        } else {
+            execSql(
+                'INSERT INTO file_transcripts (file_hash, structured_content, input_tokens, output_tokens, created_at) VALUES (?, ?, ?, ?, NOW())',
+                [$fileHash, $structuredJson, $inputTokens, $outputTokens]
+            );
+        }
+        $processedColumn = sharedFilesProcessedChunkColumn();
+        if ($processedColumn !== '') {
+            execSql(
+                "UPDATE shared_files SET status = 'completed', total_chunks = ?, {$processedColumn} = ? WHERE id = ?",
+                [count($chunks), count($chunks), $sharedFileId]
+            );
+        } else {
+            execSql(
+                'UPDATE shared_files SET status = "completed", total_chunks = ? WHERE id = ?',
+                [count($chunks), $sharedFileId]
+            );
+        }
         $pdo->commit();
     } catch (Throwable $error) {
         $pdo->rollBack();
-        throw $error;
+        throw new RuntimeException('Paso 6/6: guardando contenido del curso. ' . trim((string)$error->getMessage()), 0, $error);
     }
 }
 
 function handlePlatformContentRoutes(string $method, string $path): void {
     if ($method === 'POST' && $path === '/api/files/cache') {
-        $payload = parseBody();
-        $dataUri = (string)($payload['dataUri'] ?? '');
-        if ($dataUri === '') {
-            jsonResponse(400, ['error' => 'dataUri is required.']);
-        }
-        $commaPos = strpos($dataUri, ',');
-        if ($commaPos === false) {
-            jsonResponse(400, ['error' => 'Formato de archivo inválido.']);
-        }
-        $base64Content = substr($dataUri, $commaPos + 1);
-        $fileBuffer = parseDataUri($dataUri);
-        $fileHash = hash('sha256', $fileBuffer);
-        $existing = one('SELECT id FROM shared_files WHERE file_hash = ? LIMIT 1', [$fileHash]);
-        if ($existing) {
-            $sharedFileId = (int)$existing['id'];
-            $transcriptHealth = one(
-                'SELECT
-                    (SELECT COUNT(*) FROM file_transcripts WHERE file_hash = ?) AS transcript_count,
-                    (SELECT COUNT(*) FROM file_transcript_chunks WHERE file_hash = ?) AS chunk_count',
-                [$fileHash, $fileHash]
-            );
-            $transcriptCount = (int)($transcriptHealth['transcript_count'] ?? 0);
-            $chunkCount = (int)($transcriptHealth['chunk_count'] ?? 0);
-            if ($transcriptCount === 0 || $chunkCount === 0) {
-                execSql('UPDATE shared_files SET status = "processing" WHERE id = ?', [$sharedFileId]);
-                try {
-                    persistTranscriptForHash($sharedFileId, $fileHash, $base64Content);
-                } catch (Throwable $error) {
-                    execSql('UPDATE shared_files SET status = "failed" WHERE id = ?', [$sharedFileId]);
-                    throw $error;
-                }
-                jsonResponse(200, ['data' => ['hash' => $fileHash, 'status' => 'transcribed']]);
-            }
-            jsonResponse(200, ['data' => ['hash' => $fileHash, 'status' => 'cached']]);
-        }
-        execSql(
-            'INSERT INTO shared_files (file_name, file_content, file_hash, status, total_chunks) VALUES (?, ?, ?, "processing", 0)',
-            [(string)($payload['fileName'] ?? ('source-' . substr($fileHash, 0, 8) . '.pdf')), $fileBuffer, $fileHash]
-        );
-        $sharedFileId = (int)db()->lastInsertId();
+        $stage = 'Paso 1/6: preparando el archivo';
         try {
-            persistTranscriptForHash($sharedFileId, $fileHash, $base64Content);
+            $payload = parseBody();
+            $dataUri = (string)($payload['dataUri'] ?? '');
+            if ($dataUri === '') {
+                jsonResponse(400, ['error' => 'No recibimos el archivo para procesar.']);
+            }
+            $commaPos = strpos($dataUri, ',');
+            if ($commaPos === false) {
+                jsonResponse(400, ['error' => 'Formato de archivo inválido.']);
+            }
+            $stage = 'Paso 2/6: leyendo el PDF';
+            $base64Content = substr($dataUri, $commaPos + 1);
+            $fileBuffer = parseDataUri($dataUri);
+            $stage = 'Paso 3/6: revisando si ya existe en tu biblioteca';
+            $fileHash = hash('sha256', $fileBuffer);
+            $requestedFileName = trim((string)($payload['fileName'] ?? ''));
+            if ($requestedFileName === '') {
+                $requestedFileName = 'source-' . substr($fileHash, 0, 8) . '.pdf';
+            }
+            $existing = one('SELECT id, file_name FROM shared_files WHERE file_hash = ? LIMIT 1', [$fileHash]);
+            if ($existing) {
+                $sharedFileId = (int)$existing['id'];
+                $storedFileName = trim((string)($existing['file_name'] ?? ''));
+                $effectiveFileName = $storedFileName !== '' ? $storedFileName : $requestedFileName;
+                if ($storedFileName === '' && $requestedFileName !== '') {
+                    execSql('UPDATE shared_files SET file_name = ? WHERE id = ?', [$requestedFileName, $sharedFileId]);
+                    $effectiveFileName = $requestedFileName;
+                }
+                $transcriptHealth = one(
+                    'SELECT
+                        (SELECT COUNT(*) FROM file_transcripts WHERE file_hash = ?) AS transcript_count,
+                        (SELECT COUNT(*) FROM file_transcript_chunks WHERE file_hash = ?) AS chunk_count',
+                    [$fileHash, $fileHash]
+                );
+                $transcriptCount = (int)($transcriptHealth['transcript_count'] ?? 0);
+                $chunkCount = (int)($transcriptHealth['chunk_count'] ?? 0);
+                if ($transcriptCount === 0 || $chunkCount === 0) {
+                    execSql('UPDATE shared_files SET status = "processing" WHERE id = ?', [$sharedFileId]);
+                    try {
+                        $stage = 'Paso 4/6: transcribiendo el archivo';
+                        persistTranscriptForHash($sharedFileId, $fileHash, $base64Content, $effectiveFileName);
+                    } catch (Throwable $error) {
+                        execSql('UPDATE shared_files SET status = "failed" WHERE id = ?', [$sharedFileId]);
+                        throw $error;
+                    }
+                    jsonResponse(200, ['data' => ['hash' => $fileHash, 'status' => 'transcribed', 'stage' => 'Paso 6/6: guardando contenido del curso']]);
+                }
+                jsonResponse(200, ['data' => ['hash' => $fileHash, 'status' => 'cached', 'stage' => 'Completado: ya lo tenías procesado']]);
+            }
+            execSql(
+                'INSERT INTO shared_files (file_name, file_content, file_hash, status, total_chunks) VALUES (?, ?, ?, "processing", 0)',
+                [$requestedFileName, $fileBuffer, $fileHash]
+            );
+            $sharedFileId = (int)db()->lastInsertId();
+            try {
+                $stage = 'Paso 4/6: transcribiendo el archivo';
+                persistTranscriptForHash($sharedFileId, $fileHash, $base64Content, $requestedFileName);
+            } catch (Throwable $error) {
+                execSql('UPDATE shared_files SET status = "failed" WHERE id = ?', [$sharedFileId]);
+                throw $error;
+            }
+            jsonResponse(200, ['data' => ['hash' => $fileHash, 'status' => 'transcribed', 'stage' => 'Paso 6/6: guardando contenido del curso']]);
         } catch (Throwable $error) {
-            execSql('UPDATE shared_files SET status = "failed" WHERE id = ?', [$sharedFileId]);
-            throw $error;
+            $message = trim((string)$error->getMessage());
+            if ($message === '') {
+                $message = 'Error interno durante el procesamiento.';
+            }
+            if (str_starts_with($message, 'Paso ')) {
+                throw new RuntimeException($message, 0, $error);
+            }
+            throw new RuntimeException($stage . '. ' . $message, 0, $error);
         }
-        jsonResponse(200, ['data' => ['hash' => $fileHash, 'status' => 'transcribed']]);
     }
 
     if ($method === 'GET' && preg_match('#^/api/source-files/(\d+)$#', $path, $matches)) {

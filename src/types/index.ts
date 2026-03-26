@@ -19,6 +19,8 @@ export type CreateSyllabusInput = {
   aiModel?: string;
   customSyllabusPrompt?: string;
   numModules?: number;
+  difficulty?: 'basic' | 'intermediate' | 'advanced';
+  includeFundamentals?: boolean;
 };
 
 export type CreateSyllabusOutput = {
@@ -60,6 +62,7 @@ export interface User {
 
 export type CourseStatus = 'active' | 'archived' | 'suspended';
 export type EnrollmentStatus = 'in-progress' | 'completed';
+export type CourseDifficulty = 'basic' | 'intermediate' | 'advanced';
 
 export interface StudentProgress extends User {
     enrollmentStatus: EnrollmentStatus;
@@ -113,8 +116,8 @@ export interface CourseCategory {
 }
 
 export interface AiModel {
-    id: string; // e.g. 'gemini-1.5-pro-latest'
-    name: string; // e.g. 'Gemini 1.5 Pro'
+    id: string; // e.g. 'gpt-4o-mini'
+    name: string; // e.g. 'OpenAI GPT-4o Mini'
     pricingInput: string;
     pricingOutput: string;
     status: 'active' | 'inactive';
@@ -139,6 +142,8 @@ export interface Course {
     teacherId?: string;
     categoryId?: string;
     categoryName?: string;
+    difficulty?: CourseDifficulty;
+    includeFundamentals?: boolean;
     finalScore?: number; // Student's final score on this course
     dueDate?: string; // For student view, the specific due date for them
 }

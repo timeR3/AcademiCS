@@ -65,6 +65,8 @@ export function CourseCreationView({ onCourseSaved, isEditing = false, isAdminVi
   const [courseId, setCourseId] = useState<number | null>(null);
   
   const [selectedCategoryId, setSelectedCategoryId] = useState<string | undefined>(undefined);
+  const [courseDifficulty, setCourseDifficulty] = useState<'basic' | 'intermediate' | 'advanced'>('intermediate');
+  const [includeFundamentals, setIncludeFundamentals] = useState(false);
 
   const [generatedLearningPath, setGeneratedLearningPath] = useState<ExtendedCourseLevel[]>([]);
   const [generatedFileHashes, setGeneratedFileHashes] = useState<string[]>([]);
@@ -81,6 +83,8 @@ export function CourseCreationView({ onCourseSaved, isEditing = false, isAdminVi
       setSourceFiles(activeCourse.sourceFiles);
       setCourseId(Number(activeCourse.id));
       setSelectedCategoryId(activeCourse.categoryId);
+      setCourseDifficulty(activeCourse.difficulty || 'intermediate');
+      setIncludeFundamentals(activeCourse.includeFundamentals || false);
       setGeneratedLearningPath([]);
       setGeneratedFileHashes([]);
       setAllStructuredContent([]);
@@ -91,6 +95,8 @@ export function CourseCreationView({ onCourseSaved, isEditing = false, isAdminVi
           setSourceFiles([]);
           setCourseId(null);
           setSelectedCategoryId(undefined);
+          setCourseDifficulty('intermediate');
+          setIncludeFundamentals(false);
           setGeneratedLearningPath([]);
           setGeneratedFileHashes([]);
           setAllStructuredContent([]);
@@ -130,6 +136,7 @@ export function CourseCreationView({ onCourseSaved, isEditing = false, isAdminVi
                 moduleTitle: nextPendingModule.title,
                 structuredContent: allStructuredContent,
                 classificationMap: classificationMap,
+                difficulty: courseDifficulty,
             });
 
             setGeneratedLearningPath(currentPath =>
@@ -152,7 +159,7 @@ export function CourseCreationView({ onCourseSaved, isEditing = false, isAdminVi
     };
 
     processNextModule();
-  }, [generatedLearningPath, isGenerating, allStructuredContent, toast, activeLevelId, classificationMap]);
+  }, [generatedLearningPath, isGenerating, allStructuredContent, toast, activeLevelId, classificationMap, courseDifficulty]);
 
   
   const handleSyllabusIndexGenerated = useCallback((output: CreateSyllabusOutput) => {
@@ -182,9 +189,10 @@ export function CourseCreationView({ onCourseSaved, isEditing = false, isAdminVi
       setLevels([]); 
       
       const thematicModules = Math.max(output.moduleTitles.length - 1, 0);
+      const fundamentalsGenerated = output.moduleTitles.some(title => title.trim().toLowerCase() === 'fundamentos');
       toast({
         title: `Fase 1 y 2 Completadas`,
-        description: `Se ha propuesto un índice de ${thematicModules} módulos temáticos${output.moduleTitles.length > 0 ? ' + Fundamentos' : ''} y se ha clasificado el contenido. Iniciando generación...`
+        description: `Se ha propuesto un índice de ${thematicModules} módulos temáticos${fundamentalsGenerated ? ' + Fundamentos' : ''} y se ha clasificado el contenido. Iniciando generación...`
       });
 
   }, [toast]);
@@ -211,11 +219,11 @@ export function CourseCreationView({ onCourseSaved, isEditing = false, isAdminVi
       try {
           const categoryIdNumber = selectedCategoryId ? Number(selectedCategoryId) : undefined;
           if ((isEditing || isAdminView) && courseId) {
-              await apiPatch<{ success: boolean }>(`/api/courses/${courseId}/title`, { title, categoryId: categoryIdNumber });
+              await apiPatch<{ success: boolean }>(`/api/courses/${courseId}/title`, { title, categoryId: categoryIdNumber, difficulty: courseDifficulty, includeFundamentals });
               toast({ title: '¡Título y Categoría Actualizados!', description: 'La información del curso ha sido guardada.' });
               await refreshCourses();
           } else if (!courseId) {
-              const { courseId: newCourseId } = await apiPost<{ courseId: number }>('/api/courses', { title, teacherId: user.id, categoryId: categoryIdNumber });
+              const { courseId: newCourseId } = await apiPost<{ courseId: number }>('/api/courses', { title, teacherId: user.id, categoryId: categoryIdNumber, difficulty: courseDifficulty, includeFundamentals });
               setCourseId(newCourseId);
               setActiveCourseId(newCourseId.toString());
               toast({ title: '¡Curso Creado!', description: 'Ahora puedes generar la ruta de aprendizaje.' });
@@ -402,7 +410,7 @@ export function CourseCreationView({ onCourseSaved, isEditing = false, isAdminVi
                 <CardDescription>Establece el nombre y la categoría. Guarda para poder generar contenido.</CardDescription>
             </CardHeader>
             <CardContent>
-                <div className="grid grid-cols-1 md:grid-cols-[1fr,auto,auto] gap-4 items-end">
+                <div className="grid grid-cols-1 md:grid-cols-[minmax(0,1fr),220px,auto] gap-4 items-end">
                     <div className="space-y-2">
                         <Label htmlFor="course-title" className="font-medium">Título del Curso</Label>
                         <Input
@@ -442,6 +450,10 @@ export function CourseCreationView({ onCourseSaved, isEditing = false, isAdminVi
             courseTitleSet={!!title.trim() && !!courseId}
             courseTitle={title}
             isLoading={isLoading || isGenerating}
+            difficulty={courseDifficulty}
+            includeFundamentals={includeFundamentals}
+            onDifficultyChange={setCourseDifficulty}
+            onIncludeFundamentalsChange={setIncludeFundamentals}
         />
 
         <Card className="premium-surface w-full animate-fade-in-up">

@@ -1,6 +1,75 @@
 <?php
 declare(strict_types=1);
 
+function resolveSharedFileIdsFromReferences(array $references): array {
+    $hashes = [];
+    $numericRefs = [];
+    foreach ($references as $reference) {
+        $value = trim((string)$reference);
+        if ($value === '') {
+            continue;
+        }
+        if (preg_match('/^[a-f0-9]{64}$/i', $value) === 1) {
+            $hashes[] = strtolower($value);
+            continue;
+        }
+        $numeric = (int)$value;
+        if ($numeric > 0) {
+            $numericRefs[] = $numeric;
+        }
+    }
+    $hashes = array_values(array_unique($hashes));
+    $numericRefs = array_values(array_unique($numericRefs));
+    $sharedIds = [];
+    if (count($hashes) > 0) {
+        $inHashes = inClausePlaceholders($hashes);
+        $rowsByHash = many("SELECT id FROM shared_files WHERE file_hash IN ({$inHashes})", $hashes);
+        foreach ($rowsByHash as $row) {
+            $id = (int)($row['id'] ?? 0);
+            if ($id > 0) {
+                $sharedIds[$id] = true;
+            }
+        }
+    }
+    if (count($numericRefs) > 0) {
+        $inNumeric = inClausePlaceholders($numericRefs);
+        $rowsBySharedId = many("SELECT id FROM shared_files WHERE id IN ({$inNumeric})", $numericRefs);
+        foreach ($rowsBySharedId as $row) {
+            $id = (int)($row['id'] ?? 0);
+            if ($id > 0) {
+                $sharedIds[$id] = true;
+            }
+        }
+        $rowsByCourseSourceId = many("SELECT shared_file_id FROM course_source_files WHERE id IN ({$inNumeric})", $numericRefs);
+        foreach ($rowsByCourseSourceId as $row) {
+            $id = (int)($row['shared_file_id'] ?? 0);
+            if ($id > 0) {
+                $sharedIds[$id] = true;
+            }
+        }
+    }
+    return array_map(static fn(int $id): int => $id, array_keys($sharedIds));
+}
+
+function normalizeCourseDifficultyValue($raw): string {
+    $difficulty = strtolower(trim((string)$raw));
+    if (in_array($difficulty, ['basic', 'intermediate', 'advanced'], true)) {
+        return $difficulty;
+    }
+    return 'intermediate';
+}
+
+function parseIncludeFundamentalsValue($raw): bool {
+    if (is_bool($raw)) {
+        return $raw;
+    }
+    if (is_int($raw)) {
+        return $raw === 1;
+    }
+    $value = strtolower(trim((string)$raw));
+    return $value === '1' || $value === 'true' || $value === 'yes' || $value === 'si';
+}
+
 function handlePlatformCoursesRoutes(string $method, string $path): void {
     if ($method === 'GET' && $path === '/api/courses') {
         $role = (string)($_GET['role'] ?? '');
@@ -34,10 +103,12 @@ function handlePlatformCoursesRoutes(string $method, string $path): void {
         $title = trim((string)($payload['title'] ?? ''));
         $teacherId = (int)($payload['teacherId'] ?? 0);
         $categoryId = isset($payload['categoryId']) ? (int)$payload['categoryId'] : null;
+        $difficulty = normalizeCourseDifficultyValue($payload['difficulty'] ?? 'intermediate');
+        $includeFundamentals = parseIncludeFundamentalsValue($payload['includeFundamentals'] ?? false) ? 1 : 0;
         if ($title === '' || $teacherId <= 0) {
             jsonResponse(400, ['error' => 'Título y teacherId son requeridos.']);
         }
-        execSql('INSERT INTO courses (title, teacher_id, category_id) VALUES (?, ?, ?)', [$title, $teacherId, $categoryId]);
+        execSql('INSERT INTO courses (title, teacher_id, category_id, difficulty, include_fundamentals) VALUES (?, ?, ?, ?, ?)', [$title, $teacherId, $categoryId, $difficulty, $includeFundamentals]);
         jsonResponse(201, ['data' => ['courseId' => (int)db()->lastInsertId()]]);
     }
 
@@ -46,10 +117,12 @@ function handlePlatformCoursesRoutes(string $method, string $path): void {
         $payload = parseBody();
         $title = trim((string)($payload['title'] ?? ''));
         $categoryId = isset($payload['categoryId']) ? (int)$payload['categoryId'] : null;
+        $difficulty = normalizeCourseDifficultyValue($payload['difficulty'] ?? 'intermediate');
+        $includeFundamentals = parseIncludeFundamentalsValue($payload['includeFundamentals'] ?? false) ? 1 : 0;
         if ($title === '') {
             jsonResponse(400, ['error' => 'El título es requerido.']);
         }
-        execSql('UPDATE courses SET title = ?, category_id = ? WHERE id = ?', [$title, $categoryId, $courseId]);
+        execSql('UPDATE courses SET title = ?, category_id = ?, difficulty = ?, include_fundamentals = ? WHERE id = ?', [$title, $categoryId, $difficulty, $includeFundamentals, $courseId]);
         jsonResponse(200, ['data' => ['success' => true]]);
     }
 
@@ -159,13 +232,20 @@ function handlePlatformCoursesRoutes(string $method, string $path): void {
                 "SELECT latest.module_id,
                         SUM(CASE WHEN latest.passed = 1 THEN 1 ELSE 0 END) AS passed_count,
                         AVG(latest.score) AS average_score
-                 FROM (
-                    SELECT es.module_id, es.student_id, es.score, es.passed,
-                           ROW_NUMBER() OVER(PARTITION BY es.module_id, es.student_id ORDER BY es.submitted_at DESC) AS rn
-                    FROM evaluation_submissions es
-                    WHERE es.module_id IN ({$modulePlaceholders})
-                 ) latest
-                 WHERE latest.rn = 1
+                 FROM evaluation_submissions latest
+                 JOIN (
+                    SELECT tie.module_id, tie.student_id, MAX(tie.id) AS max_id
+                    FROM evaluation_submissions tie
+                    JOIN (
+                        SELECT module_id, student_id, MAX(submitted_at) AS max_submitted
+                        FROM evaluation_submissions
+                        WHERE module_id IN ({$modulePlaceholders})
+                        GROUP BY module_id, student_id
+                    ) picked_time ON picked_time.module_id = tie.module_id
+                        AND picked_time.student_id = tie.student_id
+                        AND picked_time.max_submitted = tie.submitted_at
+                    GROUP BY tie.module_id, tie.student_id
+                 ) picked ON picked.max_id = latest.id
                  GROUP BY latest.module_id",
                 $moduleIds
             );
@@ -261,16 +341,11 @@ function handlePlatformCoursesRoutes(string $method, string $path): void {
                 execSql("DELETE FROM evaluation_submissions WHERE module_id IN ({$in})", $moduleIds);
                 execSql("DELETE FROM course_modules WHERE id IN ({$in})", $moduleIds);
             }
-            if (count($sourceFileHashes) > 0) {
-                execSql('DELETE FROM course_source_files WHERE course_id = ?', [$courseId]);
-                $sharedFileIdsByHash = sharedFileIdsByHash($sourceFileHashes);
+            execSql('DELETE FROM course_source_files WHERE course_id = ?', [$courseId]);
+            $resolvedSourceFileIds = resolveSharedFileIdsFromReferences($sourceFileHashes);
+            if (count($resolvedSourceFileIds) > 0) {
                 $insertSourceStmt = $pdo->prepare('INSERT IGNORE INTO course_source_files (course_id, shared_file_id) VALUES (?, ?)');
-                foreach ($sourceFileHashes as $hash) {
-                    $normalizedHash = trim((string)$hash);
-                    $sharedFileId = $sharedFileIdsByHash[$normalizedHash] ?? null;
-                    if ($sharedFileId === null) {
-                        continue;
-                    }
+                foreach ($resolvedSourceFileIds as $sharedFileId) {
                     $insertSourceStmt->execute([$courseId, $sharedFileId]);
                 }
             }

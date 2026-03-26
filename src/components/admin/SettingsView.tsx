@@ -102,7 +102,7 @@ export function SettingsView() {
     };
 
     return (
-        <div className="space-y-6 min-w-0">
+        <div className="w-full space-y-6 min-w-0">
             <div className="flex items-center gap-3 sm:gap-4 min-w-0">
                  <Settings className="h-8 w-8" />
                  <div>
@@ -111,7 +111,7 @@ export function SettingsView() {
                  </div>
             </div>
 
-            <Tabs defaultValue="general" className="w-full">
+            <Tabs defaultValue="general" className="w-full min-w-0">
                 <TabsList className="grid h-auto w-full grid-cols-2 gap-1 lg:grid-cols-3 2xl:grid-cols-6">
                     <TabsTrigger value="general" className="px-2 py-2 text-xs sm:text-sm"><Settings className="mr-1 h-4 w-4 sm:mr-2"/>General</TabsTrigger>
                     <TabsTrigger value="categories" className="px-2 py-2 text-xs sm:text-sm"><FolderKanban className="mr-1 h-4 w-4 sm:mr-2"/>Categorías</TabsTrigger>
@@ -121,8 +121,8 @@ export function SettingsView() {
                     <TabsTrigger value="models" className="px-2 py-2 text-xs sm:text-sm"><Cpu className="mr-1 h-4 w-4 sm:mr-2"/>Modelos IA</TabsTrigger>
                 </TabsList>
                 
-                <TabsContent value="general" className="mt-6">
-                     <Card className="premium-surface">
+                <TabsContent value="general" className="mt-6 w-full">
+                     <Card className="premium-surface w-full">
                         <CardHeader>
                             <CardTitle>Configuración General de la Plataforma</CardTitle>
                         </CardHeader>

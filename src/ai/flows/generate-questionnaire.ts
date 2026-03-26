@@ -4,10 +4,11 @@
  * - generateQuestionnaire - Una función que maneja el proceso de generación de cuestionarios.
  */
 
-import {ai} from '@/ai/genkit';
-import {googleAI} from '@genkit-ai/googleai';
-import { GenerateQuestionnaireInput, GenerateQuestionnaireOutput, GenerateQuestionnaireInputSchema, GenerateQuestionnaireOutputSchema } from '@/types';
-export type { GenerateQuestionnaireInput, GenerateQuestionnaireOutput } from '@/types';
+import {ai} from '../genkit';
+import {openAI} from '@genkit-ai/compat-oai/openai';
+import { GenerateQuestionnaireInput, GenerateQuestionnaireOutput } from '../../types';
+export type { GenerateQuestionnaireInput, GenerateQuestionnaireOutput } from '../../types';
+import { z } from 'zod/v3';
 
 
 export async function generateQuestionnaire(
@@ -30,10 +31,23 @@ const defaultQuestionnairePrompt = `Eres un educador experto especializado en cr
 const generateQuestionnaireFlow = ai.defineFlow(
   {
     name: 'generateQuestionnaireFlow',
-    inputSchema: GenerateQuestionnaireInputSchema,
-    outputSchema: GenerateQuestionnaireOutputSchema,
+    inputSchema: z.object({
+      content: z.string(),
+      numQuestions: z.number().int().min(1),
+      customPrompt: z.string().optional(),
+      aiModel: z.string().optional(),
+    }),
+    outputSchema: z.object({
+      questionnaire: z.array(
+        z.object({
+          text: z.string(),
+          options: z.array(z.string()).length(4),
+          correctOptionIndex: z.number().int().min(0).max(3),
+        })
+      ),
+    }),
   },
-  async ({content, numQuestions, customPrompt, aiModel}) => {
+  async ({content, numQuestions, customPrompt, aiModel}: GenerateQuestionnaireInput) => {
     
     // 1. Usar el prompt personalizado del admin si existe, si no, el default.
     const basePrompt = customPrompt || defaultQuestionnairePrompt;
@@ -51,10 +65,18 @@ ${content}
 
     // 3. Llamar a la IA con el prompt final y el contexto necesario para rellenar las variables.
     const {output} = await ai.generate({
-        model: googleAI.model(aiModel || 'gemini-1.5-pro-latest'),
+        model: openAI.model(aiModel || 'gpt-4o-mini'),
         prompt: finalPrompt,
         output: {
-            schema: GenerateQuestionnaireOutputSchema,
+            schema: z.object({
+              questionnaire: z.array(
+                z.object({
+                  text: z.string(),
+                  options: z.array(z.string()).length(4),
+                  correctOptionIndex: z.number().int().min(0).max(3),
+                })
+              ),
+            }),
         },
     });
     

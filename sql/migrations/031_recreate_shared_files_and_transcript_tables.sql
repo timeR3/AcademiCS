@@ -12,6 +12,7 @@ CREATE TABLE `shared_files` (
   `file_hash` varchar(64) COLLATE utf8mb4_unicode_ci NOT NULL,
   `status` enum('pending','processing','completed','failed') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'pending',
   `total_chunks` int DEFAULT '0',
+  `processed_chunk` int DEFAULT '0',
   `uploaded_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),
   UNIQUE KEY `file_hash` (`file_hash`)
@@ -33,6 +34,7 @@ CREATE TABLE `file_transcript_chunks` (
 -- Create the table for the final, structured transcripts
 CREATE TABLE `file_transcripts` (
   `file_hash` varchar(64) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `file_name` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `structured_content` json DEFAULT NULL,
   `input_tokens` int DEFAULT NULL,
   `output_tokens` int DEFAULT NULL,

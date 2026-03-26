@@ -11,12 +11,11 @@ CREATE TABLE `ai_models` (
 
 -- Insertar los modelos de IA iniciales
 INSERT INTO `ai_models` (`id`, `name`, `pricing_input`, `pricing_output`, `status`) VALUES
-('gemini-1.5-flash-latest', 'Gemini 1.5 Flash', '$0.35 / 1M tokens', '$0.70 / 1M tokens', 'active'),
-('gemini-1.5-pro-latest', 'Gemini 1.5 Pro', '$3.50 / 1M tokens', '$10.50 / 1M tokens', 'active'),
-('gemini-2.0-flash', 'Gemini 2.0 Flash', '$0.50 / 1M tokens', '$1.00 / 1M tokens', 'active');
+('gpt-4o-mini', 'OpenAI GPT-4o Mini', '$0.15 / 1M tokens', '$0.60 / 1M tokens', 'active'),
+('gpt-4o', 'OpenAI GPT-4o', '$2.50 / 1M tokens', '$10.00 / 1M tokens', 'active'),
+('gpt-4.1-mini', 'OpenAI GPT-4.1 Mini', '$0.40 / 1M tokens', '$1.60 / 1M tokens', 'active');
 
 -- Asegurarse de que exista una configuración predeterminada en app_settings
 INSERT INTO `app_settings` (`key`, `value`)
-VALUES ('aiModel', 'gemini-1.5-flash-latest')
-ON DUPLICATE KEY UPDATE `value` = IF(`value` IS NULL OR `value` = '', 'gemini-1.5-flash-latest', `value`);
-
+VALUES ('aiModel', 'gpt-4o-mini')
+ON DUPLICATE KEY UPDATE `value` = IF(`value` IS NULL OR `value` = '', 'gpt-4o-mini', `value`);

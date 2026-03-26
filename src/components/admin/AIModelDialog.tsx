@@ -116,14 +116,14 @@ export function AIModelDialog({ model, isOpen, onClose, onModelSaved }: AIModelD
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
             <div className="space-y-2">
                 <Label htmlFor="name">Nombre para Mostrar</Label>
-                <Input id="name" {...register('name')} placeholder="Ej: Gemini 2.0 Pro" />
+                <Input id="name" {...register('name')} placeholder="Ej: OpenAI GPT-4o Mini" />
                 {errors.name && <p className="text-destructive text-sm">{errors.name.message}</p>}
             </div>
              <div className="space-y-2">
                 <Label htmlFor="id">Identificador del Modelo (ID de API)</Label>
-                <Input id="id" {...register('id')} placeholder="ej: gemini-2.0-pro-latest" disabled={isEditing} />
+                <Input id="id" {...register('id')} placeholder="ej: gpt-4o-mini" disabled={isEditing} />
                 {errors.id && <p className="text-destructive text-sm">{errors.id.message}</p>}
-                 <p className="text-xs text-muted-foreground">Este debe ser el ID exacto que usa la API de Google. No se puede cambiar después de crear.</p>
+                 <p className="text-xs text-muted-foreground">Este debe ser el ID exacto que usa la API de OpenAI. No se puede cambiar después de crear.</p>
             </div>
             
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">

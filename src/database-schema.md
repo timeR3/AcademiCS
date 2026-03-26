@@ -429,8 +429,8 @@ Almacena los modelos de IA disponibles para la generación de contenido.
 
 | Columna | Tipo | Descripción |
 | :--- | :--- | :--- |
-| **`id`** | `VARCHAR(255)` (PK) | El identificador del modelo usado en la API (ej: 'gemini-1.5-pro-latest'). |
-| `name` | `VARCHAR(255)` | Nombre para mostrar en la interfaz (ej: 'Gemini 1.5 Pro'). |
+| **`id`** | `VARCHAR(255)` (PK) | El identificador del modelo usado en la API (ej: 'gpt-4o-mini'). |
+| `name` | `VARCHAR(255)` | Nombre para mostrar en la interfaz (ej: 'OpenAI GPT-4o Mini'). |
 | `pricing_input` | `VARCHAR(255)` | Texto descriptivo del precio de entrada (ej: '$3.50 / 1M tokens'). |
 | `pricing_output` | `VARCHAR(255)` | Texto descriptivo del precio de salida (ej: '$10.50 / 1M tokens'). |
 | `status` | `ENUM('active', 'inactive')` (DEFAULT 'active') | Si el modelo está disponible para ser seleccionado. |

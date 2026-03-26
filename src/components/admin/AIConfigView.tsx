@@ -203,7 +203,7 @@ export function AIConfigView() {
 
 
     // The key is now a server-side environment variable.
-    const apiKeyName = 'GEMINI_API_KEY';
+    const apiKeyName = 'OPENAI_API_KEY';
     const isSaving = Object.values(savingStates).some(Boolean);
 
     return (
@@ -219,7 +219,7 @@ export function AIConfigView() {
                     <CardContent className="space-y-4 flex-grow">
                         <div className="space-y-2">
                             <Label>Proveedor de IA</Label>
-                            <Input value="Google (Gemini)" disabled />
+                            <Input value="OpenAI" disabled />
                         </div>
                         {loadingStatus ? (
                             <p>Verificando estado...</p>
@@ -245,7 +245,7 @@ export function AIConfigView() {
                 <Card className="premium-surface flex flex-col h-full">
                     <CardHeader>
                         <CardTitle className="flex items-center gap-2"><Cpu /> Configuración del Modelo de IA</CardTitle>
-                        <CardDescription>Elige el modelo de Gemini para la generación de contenido.</CardDescription>
+                        <CardDescription>Elige el modelo de OpenAI para la generación de contenido.</CardDescription>
                     </CardHeader>
                     <CardContent className="flex-grow">
                     {loadingSettings ? <p>Cargando...</p> : (

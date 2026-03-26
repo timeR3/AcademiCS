@@ -106,7 +106,16 @@ function applyCors(): void {
 function jsonResponse(int $status, array $payload): void {
     http_response_code($status);
     header('Content-Type: application/json; charset=utf-8');
-    echo json_encode($payload, JSON_UNESCAPED_UNICODE);
+    $flags = JSON_UNESCAPED_UNICODE;
+    if (defined('JSON_INVALID_UTF8_SUBSTITUTE')) {
+        $flags |= JSON_INVALID_UTF8_SUBSTITUTE;
+    }
+    $encoded = json_encode($payload, $flags);
+    if (!is_string($encoded)) {
+        $encoded = '{"error":"Respuesta JSON inválida del servidor."}';
+        http_response_code(500);
+    }
+    echo $encoded;
     exit;
 }
 
@@ -576,7 +585,7 @@ function bibliographyForCourse(int $courseId): array {
 
 function teacherCourses(string $teacherId, string $status, bool $includeDetails = true, int $courseIdFilter = 0): array {
     $tid = (int)$teacherId;
-    $sql = 'SELECT c.id, c.title, c.category_id, cat.name AS category_name
+    $sql = 'SELECT c.id, c.title, c.category_id, cat.name AS category_name, c.difficulty, c.include_fundamentals
             FROM courses c
             LEFT JOIN course_categories cat ON c.category_id = cat.id
             WHERE c.teacher_id = ? AND c.status = ?';
@@ -706,6 +715,8 @@ function teacherCourses(string $teacherId, string $status, bool $includeDetails 
             'teacherId' => (string)$tid,
             'categoryId' => $courseRow['category_id'] !== null ? (string)$courseRow['category_id'] : null,
             'categoryName' => $courseRow['category_name'],
+            'difficulty' => in_array((string)$courseRow['difficulty'], ['basic', 'intermediate', 'advanced'], true) ? (string)$courseRow['difficulty'] : 'intermediate',
+            'includeFundamentals' => (int)($courseRow['include_fundamentals'] ?? 0) === 1,
         ];
     }
     return $courses;
@@ -713,7 +724,7 @@ function teacherCourses(string $teacherId, string $status, bool $includeDetails 
 
 function studentCourses(string $studentId, bool $includeDetails = true, int $courseIdFilter = 0): array {
     $sid = (int)$studentId;
-    $sql = 'SELECT c.id, c.title, c.teacher_id, c.category_id, cat.name AS category_name, c.status AS course_status,
+    $sql = 'SELECT c.id, c.title, c.teacher_id, c.category_id, cat.name AS category_name, c.status AS course_status, c.difficulty, c.include_fundamentals,
                    ce.due_date, ce.status AS enrollment_status, ce.final_score
             FROM courses c
             JOIN course_enrollments ce ON c.id = ce.course_id
@@ -847,6 +858,8 @@ function studentCourses(string $studentId, bool $includeDetails = true, int $cou
             'teacherId' => (string)$row['teacher_id'],
             'categoryId' => $row['category_id'] !== null ? (string)$row['category_id'] : null,
             'categoryName' => $row['category_name'],
+            'difficulty' => in_array((string)$row['difficulty'], ['basic', 'intermediate', 'advanced'], true) ? (string)$row['difficulty'] : 'intermediate',
+            'includeFundamentals' => (int)($row['include_fundamentals'] ?? 0) === 1,
             'finalScore' => $row['final_score'] !== null ? (float)$row['final_score'] : null,
             'dueDate' => $row['due_date'] !== null ? (new DateTime((string)$row['due_date']))->format(DateTime::ATOM) : null,
             'globalStatus' => $row['course_status'],
@@ -879,7 +892,7 @@ function sharedFileIdsByHash(array $hashes): array {
 }
 
 function adminCoursesByStatus(string $status, bool $includeDetails = true, int $courseIdFilter = 0): array {
-    $sql = 'SELECT c.id, c.title, c.teacher_id, c.category_id, cat.name AS category_name
+    $sql = 'SELECT c.id, c.title, c.teacher_id, c.category_id, cat.name AS category_name, c.difficulty, c.include_fundamentals
             FROM courses c
             JOIN users u ON u.id = c.teacher_id
             JOIN user_roles ur ON ur.user_id = u.id
@@ -891,7 +904,7 @@ function adminCoursesByStatus(string $status, bool $includeDetails = true, int $
         $sql .= ' AND c.id = ?';
         $params[] = $courseIdFilter;
     }
-    $sql .= ' GROUP BY c.id, c.title, c.teacher_id, c.category_id, cat.name ORDER BY c.id ASC';
+    $sql .= ' GROUP BY c.id, c.title, c.teacher_id, c.category_id, cat.name, c.difficulty, c.include_fundamentals ORDER BY c.id ASC';
     $courseRows = many($sql, $params);
     if (count($courseRows) === 0) {
         return [];
@@ -1166,6 +1179,8 @@ function adminCoursesByStatus(string $status, bool $includeDetails = true, int $
             'teacherId' => (string)$courseRow['teacher_id'],
             'categoryId' => $courseRow['category_id'] !== null ? (string)$courseRow['category_id'] : null,
             'categoryName' => $courseRow['category_name'],
+            'difficulty' => in_array((string)$courseRow['difficulty'], ['basic', 'intermediate', 'advanced'], true) ? (string)$courseRow['difficulty'] : 'intermediate',
+            'includeFundamentals' => (int)($courseRow['include_fundamentals'] ?? 0) === 1,
         ];
     }
     return $all;
@@ -1179,8 +1194,15 @@ function duplicateCourse(int $courseId): int {
         if (!$course) {
             throw new RuntimeException('Course not found');
         }
-        $stmt = $pdo->prepare('INSERT INTO courses (title, teacher_id, status, category_id) VALUES (?, ?, ?, ?)');
-        $stmt->execute(['(Copia) ' . $course['title'], $course['teacher_id'], 'active', $course['category_id']]);
+        $stmt = $pdo->prepare('INSERT INTO courses (title, teacher_id, status, category_id, difficulty, include_fundamentals) VALUES (?, ?, ?, ?, ?, ?)');
+        $stmt->execute([
+            '(Copia) ' . $course['title'],
+            $course['teacher_id'],
+            'active',
+            $course['category_id'],
+            in_array((string)($course['difficulty'] ?? ''), ['basic', 'intermediate', 'advanced'], true) ? (string)$course['difficulty'] : 'intermediate',
+            (int)($course['include_fundamentals'] ?? 0) === 1 ? 1 : 0,
+        ]);
         $newCourseId = (int)$pdo->lastInsertId();
         $modules = many('SELECT * FROM course_modules WHERE course_id = ? ORDER BY module_order ASC', [$courseId]);
         $moduleIds = array_values(array_map(static fn(array $module): int => (int)$module['id'], $modules));

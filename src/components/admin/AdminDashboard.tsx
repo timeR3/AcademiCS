@@ -108,8 +108,8 @@ export default function AdminDashboard() {
   }
 
   return (
-    <div className="space-y-6 sm:space-y-8 h-full min-w-0">
-        <div className="h-full min-w-0">
+    <div className="w-full h-full min-w-0 space-y-6 sm:space-y-8">
+        <div className="w-full h-full min-w-0">
             {renderContent()}
         </div>
     </div>

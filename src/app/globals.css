@@ -76,18 +76,31 @@
 }
 
 @layer base {
+  html {
+    scrollbar-gutter: stable;
+    width: 100%;
+    min-height: 100%;
+  }
+  #root {
+    width: 100%;
+    min-height: 100vh;
+  }
   * {
     @apply border-border;
   }
   body {
     @apply bg-background text-foreground antialiased;
+    width: 100%;
+    min-height: 100vh;
+    margin: 0;
+    overflow-x: hidden;
   }
   button,
   a,
   input,
   textarea,
   select {
-    @apply transition-all duration-300 ease-out;
+    @apply transition-colors duration-200 ease-out;
   }
   ::selection {
     @apply bg-primary/20 text-foreground;

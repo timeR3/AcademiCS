@@ -1,14 +1,68 @@
-import { NextResponse } from 'next/server';
-import { z } from 'zod';
-import { ai } from '@/ai/genkit';
-import { googleAI } from '@genkit-ai/googleai';
-import { query } from '@/lib/db';
+import { z } from 'zod/v3';
+import { ai } from '../../../../ai/genkit';
+import { openAI } from '@genkit-ai/compat-oai/openai';
+import { query } from '../../../../lib/db';
 
 type CreateSyllabusIndexPayload = {
   pdfDataUris?: string[];
   sourceFileIds?: string[];
   numModules?: number;
 };
+
+type StructuredContentItem = {
+  title: string;
+  content: string;
+};
+
+function normalizeText(value: string): string {
+  return value
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase();
+}
+
+function extractNumericIndices(values: unknown[]): number[] {
+  const indices = new Set<number>();
+  for (const value of values) {
+    if (typeof value === 'number' && Number.isInteger(value) && value >= 0) {
+      indices.add(value);
+      continue;
+    }
+    if (typeof value === 'string') {
+      const matches = value.match(/\d+/g) || [];
+      for (const match of matches) {
+        const parsed = Number(match);
+        if (Number.isInteger(parsed) && parsed >= 0) {
+          indices.add(parsed);
+        }
+      }
+    }
+  }
+  return Array.from(indices).sort((a, b) => a - b);
+}
+
+function pickRelevantIndices(title: string, items: StructuredContentItem[], maxItems = 6): number[] {
+  if (items.length === 0) {
+    return [];
+  }
+  const titleTokens = normalizeText(title)
+    .split(/[^a-z0-9]+/)
+    .filter((token) => token.length >= 4 && !['modulo', 'fundamentos', 'tema', 'bloque', 'unidad'].includes(token));
+
+  const scored = items
+    .map((item, index) => {
+      const source = normalizeText(`${item.title} ${item.content}`);
+      const score = titleTokens.reduce((acc, token) => acc + (source.includes(token) ? 1 : 0), 0);
+      return { index, score };
+    })
+    .sort((a, b) => b.score - a.score);
+
+  const bestByScore = scored.filter((entry) => entry.score > 0).map((entry) => entry.index);
+  if (bestByScore.length > 0) {
+    return bestByScore.slice(0, maxItems);
+  }
+  return items.map((_, index) => index).slice(0, Math.min(maxItems, items.length));
+}
 
 async function fetchSettings(): Promise<{ aiModel: string; adminSyllabusPrompt: string }> {
   const [rows]: any[] = await query('SELECT `key`, `value` FROM app_settings WHERE `key` IN ("aiModel", "adminSyllabusPrompt")', []);
@@ -18,7 +72,7 @@ async function fetchSettings(): Promise<{ aiModel: string; adminSyllabusPrompt: 
   }, {});
 
   return {
-    aiModel: settingsMap.aiModel || 'gemini-1.5-pro-latest',
+    aiModel: settingsMap.aiModel || 'gpt-4o-mini',
     adminSyllabusPrompt:
       settingsMap.adminSyllabusPrompt ||
       'Eres un diseñador instruccional experto. Devuelve una propuesta de índice de módulos y clasificación de contenido.',
@@ -63,7 +117,7 @@ export async function POST(request: Request) {
     const allUris = [...uploadedUris, ...existingUris];
 
     if (allUris.length === 0) {
-      return NextResponse.json({ error: 'Debe proporcionar al menos una fuente.' }, { status: 400 });
+      return Response.json({ error: 'Debe proporcionar al menos una fuente.' }, { status: 400 });
     }
 
     const { aiModel, adminSyllabusPrompt } = await fetchSettings();
@@ -75,7 +129,7 @@ export async function POST(request: Request) {
           content: z.string(),
         })
       ),
-      classificationMap: z.record(z.array(z.string())),
+      classificationMap: z.record(z.array(z.union([z.string(), z.number()]))),
     });
 
     const promptParts = allUris.map((url) => ({ media: { url } })) as Array<{ media: { url: string } } | { text: string }>;
@@ -85,26 +139,34 @@ export async function POST(request: Request) {
         : 'Define el número pedagógicamente óptimo de módulos y que el primero sea "Fundamentos".',
     });
 
-    const { output } = await ai.generate({
-      model: googleAI.model(aiModel),
+    const generation = await ai.generate({
+      model: openAI.model(aiModel),
       system:
         `${adminSyllabusPrompt}\n` +
         'Devuelve JSON con: moduleTitles, structuredContent, classificationMap. ' +
-        'classificationMap debe mapear cada título de módulo a índices de structuredContent en string.',
+        'moduleTitles debe tener títulos semánticos, específicos y no genéricos como "Módulo 2". ' +
+        'classificationMap debe mapear cada título de módulo a índices enteros de structuredContent. ' +
+        'Cada módulo debe usar subconjuntos distintos de contenido para evitar repetición. ' +
+        'Devuelve exclusivamente JSON válido, sin texto adicional.',
       prompt: promptParts,
-      output: { schema: outputSchema },
     });
 
-    if (!output) {
-      return NextResponse.json({ error: 'No se pudo generar el índice del temario.' }, { status: 400 });
+    const parsed = outputSchema.safeParse(JSON.parse(generation.text || '{}'));
+    if (!parsed.success) {
+      return Response.json({ error: 'No se pudo generar el índice del temario.' }, { status: 400 });
     }
+    const output = parsed.data;
 
     const normalizedMap: Record<string, string[]> = {};
     for (const title of output.moduleTitles) {
-      normalizedMap[title] = output.classificationMap[title] || [];
+      const rawIndices = output.classificationMap[title] || [];
+      const parsedIndices = extractNumericIndices(rawIndices);
+      const relevantFallback = pickRelevantIndices(title, output.structuredContent, 6);
+      const finalIndices = parsedIndices.length > 0 ? parsedIndices : relevantFallback;
+      normalizedMap[title] = finalIndices.map((value) => value.toString());
     }
 
-    return NextResponse.json(
+    return Response.json(
       {
         data: {
           moduleTitles: output.moduleTitles,
@@ -117,6 +179,6 @@ export async function POST(request: Request) {
       { status: 200 }
     );
   } catch (error: any) {
-    return NextResponse.json({ error: error?.message || 'No se pudo generar el índice del temario.' }, { status: 400 });
+    return Response.json({ error: error?.message || 'No se pudo generar el índice del temario.' }, { status: 400 });
   }
 }

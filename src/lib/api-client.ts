@@ -46,7 +46,10 @@ async function parseResponse<T>(response: Response): Promise<T> {
   }
 
   if (!parsed) {
-    throw new ApiError('La API devolvió una respuesta inválida.', response.status);
+    const compactRaw = raw.replace(/\s+/g, ' ').trim();
+    const preview = compactRaw.length > 220 ? `${compactRaw.slice(0, 220)}...` : compactRaw;
+    const detail = preview ? ` Respuesta recibida: ${preview}` : '';
+    throw new ApiError(`La API devolvió una respuesta inválida.${detail}`, response.status);
   }
 
   if (!response.ok) {

@@ -2,17 +2,17 @@
 
 'use server';
 
-import { createSyllabus as createSyllabusFlow, type CreateSyllabusInput as CreateSyllabusInputFlow, type CreateSyllabusOutput } from '@/ai/flows/create-syllabus';
-import { generateQuestionnaire as generateQuestionnaireFlow } from '@/ai/flows/generate-questionnaire';
-import type { UserRole, User, Course, CourseLevel, SyllabusSection, Question, Teacher, CourseSourceFile, AppSettings, PromptHistoryItem, Badge, Notification, CourseAnalyticsData, Role, CompletedStudent, StudentProgress, CourseCategory, AiModel, TranscriptionStatus, GenerateQuestionnaireInput, StudentEnrollment, CourseBibliographyItem, CourseLevelStatus } from '@/types';
-import { query, getPool } from '@/lib/db';
-import { googleAI } from '@genkit-ai/googleai';
-import { ai } from '@/ai/genkit';
+import { createSyllabus as createSyllabusFlow, type CreateSyllabusInput as CreateSyllabusInputFlow, type CreateSyllabusOutput } from '../ai/flows/create-syllabus';
+import { generateQuestionnaire as generateQuestionnaireFlow } from '../ai/flows/generate-questionnaire';
+import type { UserRole, User, Course, CourseLevel, SyllabusSection, Question, Teacher, CourseSourceFile, AppSettings, PromptHistoryItem, Badge, Notification, CourseAnalyticsData, Role, CompletedStudent, StudentProgress, CourseCategory, AiModel, TranscriptionStatus, GenerateQuestionnaireInput, StudentEnrollment, CourseBibliographyItem, CourseLevelStatus } from '../types';
+import { query, getPool } from '../lib/db';
+import { openAI } from '@genkit-ai/compat-oai/openai';
+import { ai } from '../ai/genkit';
 import { createHash } from 'crypto';
-import { loginUserService, registerUserService, updateUserByAdminService, updateUserProfileService } from '@/server/services/auth.service';
-import { archiveCourseService, createCourseService, duplicateCourseService, reactivateSuspendedCourseService, restoreCourseService, suspendCourseService, updateCourseTitleService } from '@/server/services/course.service';
-import { generateSingleModuleSyllabusService, saveLearningPathService } from '@/server/services/learning-path.service';
-import { fetchUserNotificationsService, markUserNotificationsAsReadService } from '@/server/services/notification.service';
+import { loginUserService, registerUserService, updateUserByAdminService, updateUserProfileService } from '../server/services/auth.service';
+import { archiveCourseService, createCourseService, duplicateCourseService, reactivateSuspendedCourseService, restoreCourseService, suspendCourseService, updateCourseTitleService } from '../server/services/course.service';
+import { generateSingleModuleSyllabusService, saveLearningPathService } from '../server/services/learning-path.service';
+import { fetchUserNotificationsService, markUserNotificationsAsReadService } from '../server/services/notification.service';
 
 // --- GenAI Actions ---
 
@@ -71,7 +71,7 @@ export async function transcribeAndCacheFile(dataUri: string): Promise<{ hash: s
     const settings = await fetchAppSettings();
 
     const response = await ai.generate({
-      model: googleAI.model(settings.aiModel || 'gemini-1.5-pro-latest'),
+      model: openAI.model(settings.aiModel || 'gpt-4o-mini'),
       prompt: [{media: {url: dataUri}}],
       system: 'Extrae el texto completo y crudo del documento PDF proporcionado. No resumas, no expliques, no formatees. Solo extrae el texto.'
     });
@@ -421,19 +421,18 @@ export async function submitEvaluation(payload: { studentId: string; courseId: n
 
         if (totalModules > 0) {
             const approvedCountQuery = `
-                SELECT COUNT(DISTINCT latest_submissions.module_id) as approvedCount
-                FROM (
-                    SELECT 
-                        es.module_id, 
-                        es.passed,
-                        ROW_NUMBER() OVER(PARTITION BY es.module_id ORDER BY es.submitted_at DESC) as rn
-                    FROM evaluation_submissions es
-                    WHERE es.student_id = ? AND es.module_id IN (SELECT id FROM course_modules WHERE course_id = ?)
-                ) AS latest_submissions
-                WHERE latest_submissions.rn = 1 AND latest_submissions.passed = 1;
+                SELECT COUNT(DISTINCT es.module_id) as approvedCount
+                FROM evaluation_submissions es
+                INNER JOIN (
+                    SELECT module_id, MAX(submitted_at) as max_submitted
+                    FROM evaluation_submissions
+                    WHERE student_id = ? AND module_id IN (SELECT id FROM course_modules WHERE course_id = ?)
+                    GROUP BY module_id
+                ) latest ON es.module_id = latest.module_id AND es.submitted_at = latest.max_submitted
+                WHERE es.student_id = ? AND es.passed = 1;
             `;
 
-            const [approvedResult]: any[] = await connection.query(approvedCountQuery, [numericStudentId, courseId]);
+            const [approvedResult]: any[] = await connection.query(approvedCountQuery, [numericStudentId, courseId, numericStudentId]);
             const approvedCount = approvedResult[0].approvedCount;
             
             if (approvedCount === totalModules) {
@@ -978,7 +977,7 @@ export async function fetchCompletedStudents(courseId: string): Promise<Complete
 export async function checkAiConfigStatus(): Promise<{isApiKeySet: boolean}> {
     // For client-side checks, env variables need to be prefixed with NEXT_PUBLIC_
     return {
-        isApiKeySet: !!process.env.GEMINI_API_KEY,
+        isApiKeySet: !!process.env.OPENAI_API_KEY,
     };
 }
 
@@ -1005,7 +1004,7 @@ export async function fetchAppSettings(): Promise<AppSettings> {
         // Set defaults if not in DB
         if (!settings.aiModel) {
             const [modelResults]: any[] = await query('SELECT id FROM ai_models WHERE status = "active" LIMIT 1', []);
-            settings.aiModel = modelResults[0]?.id || 'gemini-1.5-pro-latest';
+            settings.aiModel = modelResults[0]?.id || 'gpt-4o-mini';
         }
         if (!settings.adminSyllabusPrompt) settings.adminSyllabusPrompt = `Eres un educador y diseñador de planes de estudio experto. Tu tarea es generar una ruta de aprendizaje completa y estructurada en módulos a partir de los documentos PDF proporcionados.
 
