@@ -60,9 +60,11 @@ interface SyllabusGeneratorProps {
     includeFundamentals: boolean;
     onDifficultyChange: (value: 'basic' | 'intermediate' | 'advanced') => void;
     onIncludeFundamentalsChange: (value: boolean) => void;
+    isLocked?: boolean;
+    lockReason?: string;
 }
 
-export function SyllabusGenerator({ onSyllabusIndexGenerated, hasGeneratedContent, initialSourceFiles, courseTitleSet, isLoading, difficulty, includeFundamentals, onDifficultyChange, onIncludeFundamentalsChange }: SyllabusGeneratorProps) {
+export function SyllabusGenerator({ onSyllabusIndexGenerated, hasGeneratedContent, initialSourceFiles, courseTitleSet, isLoading, difficulty, includeFundamentals, onDifficultyChange, onIncludeFundamentalsChange, isLocked = false, lockReason }: SyllabusGeneratorProps) {
   const [fileStates, setFileStates] = useState<FileState[]>([]);
   const [isGenerating, setIsGenerating] = useState(false);
   const [isProcessingFiles, setIsProcessingFiles] = useState(false);
@@ -76,6 +78,7 @@ export function SyllabusGenerator({ onSyllabusIndexGenerated, hasGeneratedConten
   const generationController = useRef<AbortController | null>(null);
 
   const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    if (isLocked) return;
     if (event.target.files) {
       const newFiles = Array.from(event.target.files);
       const currentFileNames = new Set(fileStates.map(fs => fs.file.name));
@@ -96,6 +99,7 @@ export function SyllabusGenerator({ onSyllabusIndexGenerated, hasGeneratedConten
   };
   
   const handleProcessFiles = async () => {
+    if (isLocked) return;
     const pendingFiles = fileStates.filter(fs => fs.status === 'pending');
     if (pendingFiles.length === 0) {
       toast({ title: "No hay archivos pendientes", description: "Todos los archivos ya han sido procesados." });
@@ -161,6 +165,10 @@ export function SyllabusGenerator({ onSyllabusIndexGenerated, hasGeneratedConten
 
 
   const handleGenerate = async () => {
+    if (isLocked) {
+      toast({ title: 'Paso bloqueado', description: lockReason || 'Primero debes guardar el curso.', variant: 'destructive' });
+      return;
+    }
     if (!courseTitleSet) {
        toast({ title: 'Error', description: 'Por favor, crea el curso y guarda un título antes de generar el temario.', variant: 'destructive' });
        return;
@@ -203,6 +211,7 @@ export function SyllabusGenerator({ onSyllabusIndexGenerated, hasGeneratedConten
   };
   
   const removeFile = (fileName: string) => {
+    if (isLocked) return;
     setFileStates(prev => prev.filter(fs => fs.file.name !== fileName));
     if (fileStates.length === 1 && hasGeneratedContent) {
       onSyllabusIndexGenerated({ moduleTitles: [], pdfHashes: [], structuredContent: [], classificationMap: {}, promptSource: 'admin' });
@@ -241,7 +250,7 @@ export function SyllabusGenerator({ onSyllabusIndexGenerated, hasGeneratedConten
         case 'transcribing':
             return <span className="text-primary">Procesando...</span>;
         case 'completed':
-            return <span className="text-secondary">Completado</span>;
+            return null;
         case 'failed':
             return <span className="text-destructive">Fallido</span>;
         case 'pending':
@@ -267,15 +276,15 @@ export function SyllabusGenerator({ onSyllabusIndexGenerated, hasGeneratedConten
     <Card className="w-full premium-surface animate-fade-in-up">
       <CardHeader>
         <CardTitle className="font-headline text-2xl">2. Generar Ruta de Aprendizaje</CardTitle>
-        <CardDescription>{descriptionText}</CardDescription>
+        <CardDescription>{isLocked ? (lockReason || 'Primero guarda el curso para continuar con este paso.') : descriptionText}</CardDescription>
       </CardHeader>
-      <CardContent className="space-y-6">
+      <CardContent className={`space-y-6 ${isLocked ? 'opacity-60' : ''}`}>
         <div className="grid gap-4 lg:grid-cols-[minmax(0,320px),minmax(0,1fr)] items-start">
           <div className="space-y-3">
             <Label htmlFor="pdf-upload" className="font-medium">Subir Archivos PDF</Label>
             <div
               className="flex cursor-pointer justify-center rounded-2xl border border-dashed border-input px-4 py-6 transition-colors hover:border-primary"
-              onClick={() => fileInputRef.current?.click()}
+              onClick={() => { if (!isLocked) fileInputRef.current?.click(); }}
             >
               <div className="text-center">
                 <UploadCloud className="mx-auto h-8 w-8 text-muted-foreground" />
@@ -293,7 +302,7 @@ export function SyllabusGenerator({ onSyllabusIndexGenerated, hasGeneratedConten
                   multiple
                   onChange={handleFileChange}
                   onClick={(e) => (e.currentTarget.value = '')}
-                  disabled={isLoading || isProcessingFiles}
+                  disabled={isLocked || isLoading || isProcessingFiles}
                 />
               </div>
             </div>
@@ -301,7 +310,7 @@ export function SyllabusGenerator({ onSyllabusIndexGenerated, hasGeneratedConten
               variant="default"
               size="sm"
               onClick={handleProcessFiles}
-              disabled={!hasPendingFiles || isLoading || isProcessingFiles}
+              disabled={isLocked || !hasPendingFiles || isLoading || isProcessingFiles}
               className="w-full"
             >
               {isProcessingFiles ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Cpu className="mr-2 h-4 w-4" />}
@@ -313,17 +322,18 @@ export function SyllabusGenerator({ onSyllabusIndexGenerated, hasGeneratedConten
             {fileStates.length > 0 ? (
               <>
                 <p className="font-medium text-sm">Archivos cargados</p>
-                <ul className="space-y-2">
+                <ul className="max-h-56 space-y-2 overflow-y-auto pr-1">
                   {fileStates.map((fs, index) => (
-                    <li key={index} className="flex items-center justify-between rounded-xl border bg-secondary/50 p-3">
+                    <li key={index} className="flex items-center justify-between rounded-xl border bg-secondary/50 px-3 py-2">
                       <div className="flex flex-1 items-center gap-2 overflow-hidden">
                         {getStatusIcon(fs.status)}
                         <div className="flex flex-col overflow-hidden">
                           <span className="text-sm font-medium truncate" title={fs.file.name}>{fs.file.name}</span>
-                          <div className="text-xs flex gap-x-2">
+                          <div className="text-xs flex items-center gap-x-2">
                             {getStatusText(fs.status)}
                           </div>
-                          <div className="mt-2 w-full min-w-[260px]">
+                          {fs.status !== 'completed' && (
+                          <div className="mt-2 w-full min-w-[220px]">
                             <Progress value={getProgressValue(fs.status, fs.progressStep)} className="h-2" />
                             <p className="mt-1 text-[11px] text-muted-foreground truncate">
                               {fs.progressLabel}
@@ -334,9 +344,10 @@ export function SyllabusGenerator({ onSyllabusIndexGenerated, hasGeneratedConten
                               </p>
                             ) : null}
                           </div>
+                          )}
                         </div>
                       </div>
-                      <Button variant="ghost" size="icon" className="h-6 w-6 shrink-0" onClick={() => removeFile(fs.file.name)} disabled={isLoading || isProcessingFiles}>
+                      <Button variant="ghost" size="icon" className="h-6 w-6 shrink-0" onClick={() => removeFile(fs.file.name)} disabled={isLocked || isLoading || isProcessingFiles}>
                         <X className="h-4 w-4" />
                       </Button>
                     </li>
@@ -371,7 +382,7 @@ export function SyllabusGenerator({ onSyllabusIndexGenerated, hasGeneratedConten
         <div className="grid gap-4 md:grid-cols-3">
           <div className="space-y-2">
             <Label htmlFor="course-difficulty">Dificultad del Curso</Label>
-            <Select value={difficulty} onValueChange={(value) => onDifficultyChange(value as 'basic' | 'intermediate' | 'advanced')}>
+            <Select value={difficulty} onValueChange={(value) => onDifficultyChange(value as 'basic' | 'intermediate' | 'advanced')} disabled={isLocked || isGenerating || isProcessingFiles || isLoading}>
               <SelectTrigger id="course-difficulty">
                 <SelectValue placeholder="Selecciona dificultad" />
               </SelectTrigger>
@@ -391,21 +402,21 @@ export function SyllabusGenerator({ onSyllabusIndexGenerated, hasGeneratedConten
               value={numModules || ''}
               onChange={handleNumModulesChange}
               min="1"
-              disabled={isLoading || isGenerating || isProcessingFiles}
+              disabled={isLocked || isLoading || isGenerating || isProcessingFiles}
             />
           </div>
           <div className="space-y-2">
             <Label htmlFor="include-fundamentals">Incluir módulo de Fundamentos</Label>
             <div className="flex h-10 items-center justify-between rounded-2xl border px-3">
               <span className="text-sm text-muted-foreground">{includeFundamentals ? 'Sí' : 'No'}</span>
-              <Switch id="include-fundamentals" checked={includeFundamentals} onCheckedChange={onIncludeFundamentalsChange} />
+              <Switch id="include-fundamentals" checked={includeFundamentals} onCheckedChange={onIncludeFundamentalsChange} disabled={isLocked || isGenerating || isProcessingFiles || isLoading} />
             </div>
           </div>
         </div>
       </CardContent>
       <CardFooter className="flex-col gap-4 border-t pt-6">
         {!isGenerating ? (
-            <Button onClick={handleGenerate} disabled={isLoading || isProcessingFiles || isGenerating || !canGenerate || !courseTitleSet} className="w-full">
+            <Button onClick={handleGenerate} disabled={isLocked || isLoading || isProcessingFiles || isGenerating || !canGenerate || !courseTitleSet} className="w-full">
                 {hasGeneratedContent ? <RotateCcw className="mr-2 h-4 w-4" /> : <Sparkles className="mr-2 h-4 w-4" />}
                 {hasGeneratedContent ? 'Volver a Generar Ruta' : 'Generar Ruta de Aprendizaje'}
             </Button>

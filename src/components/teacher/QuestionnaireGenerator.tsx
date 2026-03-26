@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 import { useToast } from '@/hooks/use-toast';
-import { Loader2, Sparkles, CheckCircle, RotateCcw, Save, Trash2, XCircle, Pencil, Check } from 'lucide-react';
+import { Loader2, Sparkles, RotateCcw, Save, Trash2, Pencil, Check } from 'lucide-react';
 import type { Question } from '@/types';
 import { cn } from '@/lib/utils';
 import { ScrollArea } from '../ui/scroll-area';
@@ -157,11 +157,13 @@ export function QuestionnaireGenerator({ level, isLoading, onQuestionnaireGenera
   }
 
 
+  const canSaveQuestionnaire = generatedQuestions.length > 0 && editingQuestionIndex === null && numQuestionsToDisplay <= generatedQuestions.length;
+
   return (
     <div className="space-y-6">
         <p className="text-sm text-muted-foreground">Genera un banco de preguntas para este módulo. Luego, edita las preguntas, define cuántas se mostrarán al estudiante y guarda los cambios.</p>
         
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-center">
+        <div className="grid grid-cols-1 xl:grid-cols-[auto,auto,minmax(0,1fr),auto,auto] gap-4 items-center">
             <div className="flex items-center gap-4">
                 <Label htmlFor={`num-questions-gen-${level.id}`} className="font-medium whitespace-nowrap">Nº de Preguntas a Generar</Label>
                 <Input
@@ -172,6 +174,25 @@ export function QuestionnaireGenerator({ level, isLoading, onQuestionnaireGenera
                 className="w-24"
                 min="1"
                 disabled={isLoading || isGenerating || isSaving}
+                />
+            </div>
+            <div className="flex items-center gap-4">
+                <Label htmlFor={`num-questions-display-${level.id}`} className="font-medium whitespace-nowrap">Nº de Preguntas a Mostrar</Label>
+                <Input
+                id={`num-questions-display-${level.id}`}
+                type="number"
+                value={numQuestionsToDisplay}
+                onChange={(e) => {
+                  const nextValue = Math.max(1, parseInt(e.target.value, 10)) || 1;
+                  setNumQuestionsToDisplay(nextValue);
+                  if (level.id.startsWith("gen-")) {
+                    onQuestionnaireGenerated(level.id, generatedQuestions, nextValue);
+                  }
+                }}
+                className="w-24"
+                min="1"
+                max={generatedQuestions.length || undefined}
+                disabled={isLoading || isGenerating || isSaving || editingQuestionIndex !== null}
                 />
             </div>
             <div className="rounded-2xl border bg-card p-4">
@@ -195,10 +216,16 @@ export function QuestionnaireGenerator({ level, isLoading, onQuestionnaireGenera
                     </div>
                 </RadioGroup>
             </div>
-             <Button onClick={handleGenerate} disabled={isLoading || isGenerating || isSaving || !syllabusContent.trim()} className="w-full md:w-auto md:justify-self-end">
+             <Button onClick={handleGenerate} disabled={isLoading || isGenerating || isSaving || !syllabusContent.trim()} className="w-full xl:w-auto">
               {isGenerating ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : (generatedQuestions.length > 0 ? <RotateCcw className="mr-2 h-4 w-4" /> : <Sparkles className="mr-2 h-4 w-4" />)}
               {generatedQuestions.length > 0 ? 'Volver a Generar' : 'Generar Preguntas'}
             </Button>
+            {!level.id.startsWith("gen-") && (
+              <Button onClick={handleSave} disabled={isLoading || isGenerating || isSaving || !canSaveQuestionnaire} className="w-full xl:w-auto">
+                  {isSaving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
+                  Guardar Cuestionario
+              </Button>
+            )}
         </div>
          {isGenerating && <p className="text-sm text-muted-foreground animate-pulse">La IA está creando un banco de preguntas para "{level.title}"...</p>}
 
@@ -262,28 +289,6 @@ export function QuestionnaireGenerator({ level, isLoading, onQuestionnaireGenera
                    </Accordion>
                 </ScrollArea>
             </div>
-            {/* Don't show save button for generated path, as it's saved with the whole path */}
-            {level.id.startsWith("gen-") ? null : (
-                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-center pt-4 border-t">
-                    <div className="flex items-center gap-4">
-                        <Label htmlFor={`num-questions-display-${level.id}`} className="font-medium whitespace-nowrap">Nº de Preguntas a Mostrar</Label>
-                        <Input
-                        id={`num-questions-display-${level.id}`}
-                        type="number"
-                        value={numQuestionsToDisplay}
-                        onChange={(e) => setNumQuestionsToDisplay(Math.max(1, parseInt(e.target.value, 10)) || 1)}
-                        className="w-24"
-                        min="1"
-                        max={generatedQuestions.length}
-                        disabled={isLoading || isGenerating || isSaving || editingQuestionIndex !== null}
-                        />
-                    </div>
-                    <Button onClick={handleSave} disabled={isLoading || isGenerating || isSaving || editingQuestionIndex !== null} className="w-full md:w-auto md:justify-self-end">
-                        {isSaving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
-                        Guardar Cuestionario
-                    </Button>
-                </div>
-            )}
           </div>
         )}
       </div>

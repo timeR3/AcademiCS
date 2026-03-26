@@ -16,6 +16,7 @@ import { SidebarProvider } from '@/components/ui/sidebar';
 import { MainSidebar } from '@/components/shared/MainSidebar';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { SeasonalBanner } from '@/components/shared/SeasonalBanner';
+import { cn } from '@/lib/utils';
 
 const roleConfig: Record<UserRole, { name: string; icon: ElementType }> = {
   teacher: { name: 'Profesor', icon: BookOpenCheck },
@@ -67,10 +68,19 @@ function AppContent() {
                     <TooltipProvider>
                       {sortedRoles.map((role) => {
                         const config = roleConfig[role];
+                        const isActiveRole = role === activeRole;
                         return (
                           <Tooltip key={role}>
                             <TooltipTrigger asChild>
-                              <TabsTrigger value={role} className="w-full rounded-xl border border-transparent px-3 py-2.5 text-sm font-semibold text-foreground/80 data-[state=active]:border-primary/20 data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:shadow-sm">
+                              <TabsTrigger
+                                value={role}
+                                className={cn(
+                                  'w-full rounded-xl border px-3 py-2.5 text-sm font-semibold transition-colors duration-200',
+                                  isActiveRole
+                                    ? 'border-primary bg-primary text-primary-foreground shadow-sm'
+                                    : 'border-border bg-background text-foreground hover:border-primary/30 hover:bg-muted/60'
+                                )}
+                              >
                                 <config.icon className="h-5 w-5 mr-2" />
                                 {config.name}
                               </TabsTrigger>

@@ -261,6 +261,7 @@ export function CourseCreationView({ onCourseSaved, isEditing = false, isAdminVi
             sourceFileHashes: generatedFileHashes.length > 0 ? generatedFileHashes : sourceFiles.map(f => f.id),
         });
         setLevels(updatedLearningPath); 
+        setActiveLevelId(updatedLearningPath[0]?.id || null);
         setGeneratedLearningPath([]); 
         setGeneratedFileHashes([]);
         setAllStructuredContent([]);
@@ -315,6 +316,17 @@ export function CourseCreationView({ onCourseSaved, isEditing = false, isAdminVi
   const activeLevel = activeLevelId
     ? displayPath.find(l => l.id === activeLevelId)
     : null;
+  const isCourseSaved = !!courseId;
+  const hasGeneratedPathDraft = generatedLearningPath.length > 0;
+  const isLearningPathSaved = isCourseSaved && levels.length > 0 && !hasGeneratedPathDraft;
+  const questionnaireLockReason = !isCourseSaved
+    ? 'Primero crea y guarda el curso.'
+    : hasGeneratedPathDraft
+      ? 'Primero guarda la ruta de aprendizaje para habilitar los cuestionarios.'
+      : levels.length === 0
+        ? 'Primero genera y guarda una ruta de aprendizaje.'
+        : null;
+  const canUseQuestionnaires = questionnaireLockReason === null;
 
   const canSaveLearningPath = useCallback(() => {
     if (isGenerating) return false;
@@ -454,6 +466,8 @@ export function CourseCreationView({ onCourseSaved, isEditing = false, isAdminVi
             includeFundamentals={includeFundamentals}
             onDifficultyChange={setCourseDifficulty}
             onIncludeFundamentalsChange={setIncludeFundamentals}
+            isLocked={!isCourseSaved}
+            lockReason="Primero debes crear y guardar el curso para habilitar este paso."
         />
 
         <Card className="premium-surface w-full animate-fade-in-up">
@@ -462,7 +476,9 @@ export function CourseCreationView({ onCourseSaved, isEditing = false, isAdminVi
                     <CardTitle className="font-headline text-2xl flex items-center gap-2"><BookOpen />3. Ruta de Aprendizaje</CardTitle>
                 </div>
                 <CardDescription>
-                    {isGenerating
+                    {!isCourseSaved
+                        ? "Este paso se habilita cuando guardas el curso."
+                        : isGenerating
                         ? "Generando contenido de los módulos secuencialmente..."
                         : "Aquí puedes ver y editar los módulos generados. Una vez que todo el contenido del temario esté listo, guarda la ruta de aprendizaje."
                     }
@@ -476,7 +492,7 @@ export function CourseCreationView({ onCourseSaved, isEditing = false, isAdminVi
                     {displayPath.map((level, index) => (
                     <AccordionItem value={level.id} key={level.id}>
                         <div className="flex items-center w-full">
-                            <AccordionTrigger className="font-semibold text-lg hover:no-underline flex-1" disabled={isLoading}>
+                            <AccordionTrigger className="font-semibold text-lg hover:no-underline flex-1" disabled={isLoading || !isCourseSaved}>
                                 <div className="text-left flex items-center">
                                     <span className="mr-2">{index + 1}.</span> 
                                     <Input 
@@ -484,6 +500,7 @@ export function CourseCreationView({ onCourseSaved, isEditing = false, isAdminVi
                                         onChange={(e) => handleLevelChange(level.id, 'title', e.target.value)}
                                         className="text-lg font-semibold p-0 border-none focus-visible:ring-0 h-auto bg-transparent"
                                         onClick={(e) => e.stopPropagation()}
+                                        disabled={isLoading || !isCourseSaved}
                                     />
                                 </div>
                             </AccordionTrigger>
@@ -494,7 +511,7 @@ export function CourseCreationView({ onCourseSaved, isEditing = false, isAdminVi
                                         size="sm"
                                         variant="ghost"
                                         onClick={() => handleRetryModule(level.id)}
-                                        disabled={isGenerating || isLoading}
+                                        disabled={isGenerating || isLoading || !isCourseSaved}
                                         className="h-8 w-8 p-0"
                                     >
                                         <RotateCcw className="h-4 w-4" />
@@ -505,7 +522,7 @@ export function CourseCreationView({ onCourseSaved, isEditing = false, isAdminVi
                                     size="icon"
                                     variant="destructive"
                                     onClick={() => setModuleToDelete(level)}
-                                    disabled={isGenerating || isLoading}
+                                    disabled={isGenerating || isLoading || !isCourseSaved}
                                     className="h-8 w-8"
                                 >
                                     <Trash2 className="h-4 w-4" />
@@ -526,6 +543,7 @@ export function CourseCreationView({ onCourseSaved, isEditing = false, isAdminVi
                                         value={level.introduction}
                                         onChange={(e) => handleLevelChange(level.id, 'introduction', e.target.value)}
                                         rows={4}
+                                        disabled={isLoading || !isCourseSaved}
                                      />
                                 </div>
                                 {level.syllabus && level.syllabus.length > 0 ? (
@@ -539,6 +557,7 @@ export function CourseCreationView({ onCourseSaved, isEditing = false, isAdminVi
                                                 onChange={(e) => handleSyllabusChange(level.id, sIndex, 'title', e.target.value)}
                                                 className="text-sm font-medium p-0 border-none focus-visible:ring-0 h-auto bg-transparent"
                                                 onClick={(e) => e.stopPropagation()}
+                                                disabled={isLoading || !isCourseSaved}
                                             />
                                         </AccordionTrigger>
                                         <AccordionContent className="pt-2">
@@ -547,6 +566,7 @@ export function CourseCreationView({ onCourseSaved, isEditing = false, isAdminVi
                                                 onChange={(e) => handleSyllabusChange(level.id, sIndex, 'content', e.target.value)}
                                                 rows={8}
                                                 className="text-sm"
+                                                disabled={isLoading || !isCourseSaved}
                                             />
                                         </AccordionContent>
                                     </AccordionItem>
@@ -564,7 +584,7 @@ export function CourseCreationView({ onCourseSaved, isEditing = false, isAdminVi
             </CardContent>
             {hasContentToSave && (
                 <CardFooter className="justify-end border-t pt-6">
-                    <Button onClick={handleSaveLearningPath} disabled={isLoading || isGenerating || !canSaveLearningPath()}>
+                    <Button onClick={handleSaveLearningPath} disabled={isLoading || isGenerating || !isCourseSaved || !canSaveLearningPath()}>
                         {isLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
                         Guardar Ruta de Aprendizaje
                     </Button>
@@ -576,13 +596,15 @@ export function CourseCreationView({ onCourseSaved, isEditing = false, isAdminVi
             <CardHeader>
                 <CardTitle className="font-headline text-2xl flex items-center gap-2"><FileQuestion />4. Generador de Cuestionarios</CardTitle>
                 <CardDescription>
-                    {activeLevel 
+                    {!canUseQuestionnaires
+                        ? questionnaireLockReason
+                        : activeLevel 
                         ? <span className="block">Genera el cuestionario para el módulo seleccionado: <strong className="text-lg font-bold italic block mt-1">"{activeLevel.title}"</strong></span>
                         : "Selecciona un módulo de la lista de arriba para generar su cuestionario."
                     }
                 </CardDescription>
             </CardHeader>
-            {activeLevel && (
+            {canUseQuestionnaires && activeLevel && (
                 <CardContent>
                     <QuestionnaireGenerator 
                         key={activeLevel.id}
@@ -590,6 +612,13 @@ export function CourseCreationView({ onCourseSaved, isEditing = false, isAdminVi
                         onQuestionnaireGenerated={handleQuestionnaireGenerated}
                         isLoading={isLoading || isGenerating || activeLevel.generationStatus !== 'completed'}
                     />
+                </CardContent>
+            )}
+            {!canUseQuestionnaires && (
+                <CardContent>
+                    <div className="rounded-2xl border border-dashed p-4 text-sm text-muted-foreground">
+                        {questionnaireLockReason}
+                    </div>
                 </CardContent>
             )}
         </Card>
