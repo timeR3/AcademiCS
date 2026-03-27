@@ -8,11 +8,9 @@ import { CourseCreationView } from '../teacher/CourseCreationView';
 import type { Course } from '@/types';
 import { useCourse } from '@/context/CourseContext';
 import { apiGet } from '@/lib/api-client';
-import { useToast } from '@/hooks/use-toast';
 
 export default function AdminDashboard() {
   const { adminView, setAdminView, activeCourse, setActiveCourseId, refreshCourses, updateCourse, courses, archivedCourses } = useCourse();
-  const { toast } = useToast();
   const prefetchedCourseIdsRef = useRef<Set<string>>(new Set());
 
   const prefetchCourseDetails = useCallback(async (course: Course) => {
@@ -31,20 +29,6 @@ export default function AdminDashboard() {
     }
   }, [updateCourse]);
 
-  const handleEditCourse = async (course: Course) => {
-    prefetchedCourseIdsRef.current.add(course.id);
-    try {
-      await prefetchCourseDetails(course);
-      setAdminView('edit-course');
-      setActiveCourseId(course.id);
-    } catch (error: any) {
-      toast({ title: 'Error', description: error.message, variant: 'destructive' });
-      setAdminView('courses');
-      setActiveCourseId(null);
-      throw error;
-    }
-  };
-  
   const handleBackToTabs = () => {
     refreshCourses();
     setActiveCourseId(null);
@@ -97,7 +81,7 @@ export default function AdminDashboard() {
       case 'analytics':
         return <AnalyticsView />;
       case 'courses':
-        return <CoursesView onEditCourse={handleEditCourse} onPrefetchCourse={(course) => { void prefetchCourseDetails(course); }} />;
+        return <CoursesView onPrefetchCourse={prefetchCourseDetails} />;
       case 'users':
         return <UsersView />;
        case 'settings':

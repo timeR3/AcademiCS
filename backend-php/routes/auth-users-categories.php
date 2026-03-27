@@ -48,6 +48,16 @@ function handleAuthUserCategoryRoutes(string $method, string $path): void {
         if ($user['status'] !== 'active') {
             jsonResponse(401, ['error' => 'Esta cuenta de usuario está inactiva.']);
         }
+        $hasLastLoginAt = (int)(one(
+            "SELECT COUNT(*) AS total
+             FROM INFORMATION_SCHEMA.COLUMNS
+             WHERE TABLE_SCHEMA = DATABASE()
+               AND TABLE_NAME = 'users'
+               AND COLUMN_NAME = 'last_login_at'"
+        )['total'] ?? 0) > 0;
+        if ($hasLastLoginAt) {
+            execSql('UPDATE users SET last_login_at = NOW() WHERE id = ?', [(int)$user['id']]);
+        }
         $roles = userRoles((int)$user['id']);
         jsonResponse(200, ['data' => [
             'id' => (string)$user['id'],
@@ -59,19 +69,57 @@ function handleAuthUserCategoryRoutes(string $method, string $path): void {
     }
 
     if ($method === 'GET' && $path === '/api/users') {
-        $rows = many(
-            'SELECT u.id, u.name, u.email, u.status, GROUP_CONCAT(r.name) AS roles
-             FROM users u
-             LEFT JOIN user_roles ur ON u.id = ur.user_id
-             LEFT JOIN roles r ON ur.role_id = r.id
-             GROUP BY u.id, u.name, u.email, u.status'
-        );
+        $hasLastLoginAt = (int)(one(
+            "SELECT COUNT(*) AS total
+             FROM INFORMATION_SCHEMA.COLUMNS
+             WHERE TABLE_SCHEMA = DATABASE()
+               AND TABLE_NAME = 'users'
+               AND COLUMN_NAME = 'last_login_at'"
+        )['total'] ?? 0) > 0;
+        if ($hasLastLoginAt) {
+            $rows = many(
+                'SELECT u.id, u.name, u.email, u.status, u.created_at, u.last_login_at, ua.last_activity_at, GROUP_CONCAT(r.name) AS roles
+                 FROM users u
+                 LEFT JOIN user_roles ur ON u.id = ur.user_id
+                 LEFT JOIN roles r ON ur.role_id = r.id
+                 LEFT JOIN (
+                    SELECT activity.user_id, MAX(activity.activity_at) AS last_activity_at
+                    FROM (
+                        SELECT n.user_id, n.created_at AS activity_at FROM notifications n
+                        UNION ALL
+                        SELECT es.student_id AS user_id, es.submitted_at AS activity_at FROM evaluation_submissions es
+                    ) activity
+                    GROUP BY activity.user_id
+                 ) ua ON ua.user_id = u.id
+                 GROUP BY u.id, u.name, u.email, u.status, u.created_at, u.last_login_at, ua.last_activity_at'
+            );
+        } else {
+            $rows = many(
+                'SELECT u.id, u.name, u.email, u.status, u.created_at, NULL AS last_login_at, ua.last_activity_at, GROUP_CONCAT(r.name) AS roles
+                 FROM users u
+                 LEFT JOIN user_roles ur ON u.id = ur.user_id
+                 LEFT JOIN roles r ON ur.role_id = r.id
+                 LEFT JOIN (
+                    SELECT activity.user_id, MAX(activity.activity_at) AS last_activity_at
+                    FROM (
+                        SELECT n.user_id, n.created_at AS activity_at FROM notifications n
+                        UNION ALL
+                        SELECT es.student_id AS user_id, es.submitted_at AS activity_at FROM evaluation_submissions es
+                    ) activity
+                    GROUP BY activity.user_id
+                 ) ua ON ua.user_id = u.id
+                 GROUP BY u.id, u.name, u.email, u.status, u.created_at, ua.last_activity_at'
+            );
+        }
         $data = array_map(fn(array $row): array => [
             'id' => (string)$row['id'],
             'name' => $row['name'],
             'email' => $row['email'],
             'status' => $row['status'],
             'roles' => $row['roles'] ? array_map('trim', explode(',', (string)$row['roles'])) : [],
+            'createdAt' => isset($row['created_at']) && $row['created_at'] !== null ? (new DateTime((string)$row['created_at']))->format(DateTime::ATOM) : null,
+            'lastLoginAt' => isset($row['last_login_at']) && $row['last_login_at'] !== null ? (new DateTime((string)$row['last_login_at']))->format(DateTime::ATOM) : null,
+            'lastActivityAt' => isset($row['last_activity_at']) && $row['last_activity_at'] !== null ? (new DateTime((string)$row['last_activity_at']))->format(DateTime::ATOM) : null,
         ], $rows);
         jsonResponse(200, ['data' => $data]);
     }

@@ -60,11 +60,12 @@ interface SyllabusGeneratorProps {
     includeFundamentals: boolean;
     onDifficultyChange: (value: 'basic' | 'intermediate' | 'advanced') => void;
     onIncludeFundamentalsChange: (value: boolean) => void;
+    courseId?: string | null;
     isLocked?: boolean;
     lockReason?: string;
 }
 
-export function SyllabusGenerator({ onSyllabusIndexGenerated, hasGeneratedContent, initialSourceFiles, courseTitleSet, isLoading, difficulty, includeFundamentals, onDifficultyChange, onIncludeFundamentalsChange, isLocked = false, lockReason }: SyllabusGeneratorProps) {
+export function SyllabusGenerator({ onSyllabusIndexGenerated, hasGeneratedContent, initialSourceFiles, courseTitleSet, isLoading, difficulty, includeFundamentals, onDifficultyChange, onIncludeFundamentalsChange, courseId, isLocked = false, lockReason }: SyllabusGeneratorProps) {
   const [fileStates, setFileStates] = useState<FileState[]>([]);
   const [isGenerating, setIsGenerating] = useState(false);
   const [isProcessingFiles, setIsProcessingFiles] = useState(false);
@@ -127,6 +128,7 @@ export function SyllabusGenerator({ onSyllabusIndexGenerated, hasGeneratedConten
         const { hash, status, stage } = await apiPost<{ hash: string; status: 'cached' | 'transcribed'; stage?: string }>('/api/files/cache', {
           dataUri,
           fileName: pendingFile.file.name,
+          courseId,
         });
         
         updateFileProgress(pendingFile.file.name, 'transcribing', 5, 'Paso 5 de 6: separando el contenido');
@@ -190,6 +192,7 @@ export function SyllabusGenerator({ onSyllabusIndexGenerated, hasGeneratedConten
           numModules: numModules,
           difficulty,
           includeFundamentals,
+          courseId,
       });
 
       onSyllabusIndexGenerated(result);

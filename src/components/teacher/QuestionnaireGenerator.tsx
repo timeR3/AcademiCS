@@ -64,6 +64,8 @@ export function QuestionnaireGenerator({ level, isLoading, onQuestionnaireGenera
           content: syllabusContent, 
           numQuestions: numQuestionsToGenerate,
           difficulty,
+          moduleId: Number(level.id),
+          courseId: activeCourse?.id ? Number(activeCourse.id) : undefined,
       });
       const newQuestions = result.questionnaire;
       setGeneratedQuestions(newQuestions);

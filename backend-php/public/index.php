@@ -263,6 +263,8 @@ function ensurePerformanceIndexes(PDO $pdo): void {
         ['shared_files', 'idx_shared_files_file_hash', ['file_hash']],
         ['notifications', 'idx_notifications_user_created', ['user_id', 'created_at']],
         ['course_categories', 'idx_categories_status_name', ['status', 'name']],
+        ['ai_usage_events', 'idx_ai_usage_course_event_created', ['course_id', 'event_type', 'created_at']],
+        ['ai_usage_events', 'idx_ai_usage_module_created', ['module_id', 'created_at']],
     ];
     try {
         foreach ($indexSpecs as [$tableName, $indexName, $columns]) {
@@ -328,6 +330,161 @@ function execSql(string $sql, array $params = []): int {
     $stmt = db()->prepare($sql);
     $stmt->execute($params);
     return $stmt->rowCount();
+}
+
+function ensureAiUsageTrackingSchema(): void {
+    static $ensured = false;
+    if ($ensured) {
+        return;
+    }
+    $ensured = true;
+    $pdo = db();
+    $pdo->exec(
+        'CREATE TABLE IF NOT EXISTS ai_usage_events (
+            id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+            course_id INT NULL,
+            module_id INT NULL,
+            event_type VARCHAR(64) NOT NULL,
+            status VARCHAR(24) NOT NULL DEFAULT "success",
+            model_id VARCHAR(120) DEFAULT NULL,
+            input_tokens INT UNSIGNED NOT NULL DEFAULT 0,
+            output_tokens INT UNSIGNED NOT NULL DEFAULT 0,
+            total_tokens INT UNSIGNED NOT NULL DEFAULT 0,
+            input_rate_per_million DECIMAL(12,6) DEFAULT NULL,
+            output_rate_per_million DECIMAL(12,6) DEFAULT NULL,
+            estimated_cost_usd DECIMAL(14,8) NOT NULL DEFAULT 0,
+            metadata JSON NULL,
+            created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (id)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci'
+    );
+    ensureIndex($pdo, 'ai_usage_events', 'idx_ai_usage_course_event_created', ['course_id', 'event_type', 'created_at']);
+    ensureIndex($pdo, 'ai_usage_events', 'idx_ai_usage_module_created', ['module_id', 'created_at']);
+}
+
+function aiResolveCourseId(int $courseId, int $moduleId): int {
+    if ($courseId > 0) {
+        return $courseId;
+    }
+    if ($moduleId <= 0) {
+        return 0;
+    }
+    $row = one('SELECT course_id FROM course_modules WHERE id = ? LIMIT 1', [$moduleId]);
+    return (int)($row['course_id'] ?? 0);
+}
+
+function aiParsePricingToRatePerMillion(?string $raw): ?float {
+    if (!is_string($raw)) {
+        return null;
+    }
+    $value = trim(strtolower($raw));
+    if ($value === '') {
+        return null;
+    }
+    if (!preg_match('/([0-9]+(?:\.[0-9]+)?)/', str_replace(',', '.', $value), $matches)) {
+        return null;
+    }
+    $amount = (float)$matches[1];
+    if ($amount < 0) {
+        return null;
+    }
+    if (preg_match('/(?:\/|\bper\b)\s*1?\s*k\b/', $value) === 1) {
+        return $amount * 1000;
+    }
+    if (preg_match('/(?:\/|\bper\b)\s*1?\s*m\b/', $value) === 1) {
+        return $amount;
+    }
+    if (str_contains($value, 'token')) {
+        return $amount * 1000000;
+    }
+    return $amount;
+}
+
+function aiModelPricingRates(string $modelId): array {
+    if ($modelId === '') {
+        return ['inputRatePerMillion' => null, 'outputRatePerMillion' => null];
+    }
+    $row = one('SELECT pricing_input, pricing_output FROM ai_models WHERE id = ? LIMIT 1', [$modelId]);
+    if (!$row) {
+        return ['inputRatePerMillion' => null, 'outputRatePerMillion' => null];
+    }
+    return [
+        'inputRatePerMillion' => aiParsePricingToRatePerMillion(isset($row['pricing_input']) ? (string)$row['pricing_input'] : null),
+        'outputRatePerMillion' => aiParsePricingToRatePerMillion(isset($row['pricing_output']) ? (string)$row['pricing_output'] : null),
+    ];
+}
+
+function aiEstimateCostUsd(int $inputTokens, int $outputTokens, ?float $inputRatePerMillion, ?float $outputRatePerMillion): float {
+    $inputCost = $inputRatePerMillion !== null ? ($inputTokens / 1000000) * $inputRatePerMillion : 0.0;
+    $outputCost = $outputRatePerMillion !== null ? ($outputTokens / 1000000) * $outputRatePerMillion : 0.0;
+    return $inputCost + $outputCost;
+}
+
+function logAiUsageEvent(array $payload): void {
+    try {
+        ensureAiUsageTrackingSchema();
+        $courseId = max(0, (int)($payload['courseId'] ?? 0));
+        $moduleId = max(0, (int)($payload['moduleId'] ?? 0));
+        $resolvedCourseId = aiResolveCourseId($courseId, $moduleId);
+        $eventType = trim((string)($payload['eventType'] ?? ''));
+        if ($eventType === '') {
+            return;
+        }
+        $status = trim((string)($payload['status'] ?? 'success'));
+        if ($status === '') {
+            $status = 'success';
+        }
+        $modelId = trim((string)($payload['modelId'] ?? ''));
+        $inputTokens = max(0, (int)($payload['inputTokens'] ?? 0));
+        $outputTokens = max(0, (int)($payload['outputTokens'] ?? 0));
+        $totalTokens = max(0, $inputTokens + $outputTokens);
+        $inputRatePerMillion = null;
+        $outputRatePerMillion = null;
+        if (array_key_exists('inputRatePerMillion', $payload)) {
+            $value = $payload['inputRatePerMillion'];
+            $inputRatePerMillion = is_numeric($value) ? (float)$value : null;
+        }
+        if (array_key_exists('outputRatePerMillion', $payload)) {
+            $value = $payload['outputRatePerMillion'];
+            $outputRatePerMillion = is_numeric($value) ? (float)$value : null;
+        }
+        if (($inputRatePerMillion === null || $outputRatePerMillion === null) && $modelId !== '') {
+            $pricing = aiModelPricingRates($modelId);
+            if ($inputRatePerMillion === null) {
+                $inputRatePerMillion = $pricing['inputRatePerMillion'];
+            }
+            if ($outputRatePerMillion === null) {
+                $outputRatePerMillion = $pricing['outputRatePerMillion'];
+            }
+        }
+        $estimatedCostUsd = aiEstimateCostUsd($inputTokens, $outputTokens, $inputRatePerMillion, $outputRatePerMillion);
+        $metadata = null;
+        if (isset($payload['metadata'])) {
+            $encodedMetadata = json_encode($payload['metadata'], JSON_UNESCAPED_UNICODE);
+            if (is_string($encodedMetadata)) {
+                $metadata = $encodedMetadata;
+            }
+        }
+        execSql(
+            'INSERT INTO ai_usage_events (course_id, module_id, event_type, status, model_id, input_tokens, output_tokens, total_tokens, input_rate_per_million, output_rate_per_million, estimated_cost_usd, metadata) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+            [
+                $resolvedCourseId > 0 ? $resolvedCourseId : null,
+                $moduleId > 0 ? $moduleId : null,
+                $eventType,
+                $status,
+                $modelId !== '' ? $modelId : null,
+                $inputTokens,
+                $outputTokens,
+                $totalTokens,
+                $inputRatePerMillion,
+                $outputRatePerMillion,
+                $estimatedCostUsd,
+                $metadata,
+            ]
+        );
+    } catch (Throwable $error) {
+        error_log('AI usage tracking warning: ' . $error->getMessage());
+    }
 }
 
 function userRoles(int $userId): array {
@@ -912,6 +1069,47 @@ function adminCoursesByStatus(string $status, bool $includeDetails = true, int $
 
     $courseIds = array_values(array_map(fn(array $row): int => (int)$row['id'], $courseRows));
     $coursePlaceholders = inClausePlaceholders($courseIds);
+    $aiMetricsByCourse = [];
+    if (tableExists(db(), 'ai_usage_events')) {
+        $aiRows = many(
+            "SELECT
+                course_id,
+                SUM(input_tokens) AS total_input_tokens,
+                SUM(output_tokens) AS total_output_tokens,
+                SUM(total_tokens) AS total_tokens,
+                SUM(estimated_cost_usd) AS total_estimated_cost_usd,
+                SUM(CASE WHEN event_type = 'syllabus_index_generation' THEN 1 ELSE 0 END) AS syllabus_index_attempts,
+                SUM(CASE WHEN event_type = 'syllabus_module_generation' THEN 1 ELSE 0 END) AS syllabus_module_attempts,
+                SUM(CASE WHEN event_type = 'questionnaire_generation' THEN 1 ELSE 0 END) AS questionnaire_attempts,
+                SUM(CASE WHEN event_type = 'file_upload' THEN 1 ELSE 0 END) AS file_upload_attempts,
+                SUM(CASE WHEN event_type = 'file_upload' AND status = 'success' THEN 1 ELSE 0 END) AS file_upload_successes
+             FROM ai_usage_events
+             WHERE course_id IN ({$coursePlaceholders})
+             GROUP BY course_id",
+            $courseIds
+        );
+        foreach ($aiRows as $aiRow) {
+            $cid = (int)($aiRow['course_id'] ?? 0);
+            if ($cid <= 0) {
+                continue;
+            }
+            $syllabusIndexAttempts = (int)($aiRow['syllabus_index_attempts'] ?? 0);
+            $syllabusModuleAttempts = (int)($aiRow['syllabus_module_attempts'] ?? 0);
+            $questionnaireAttempts = (int)($aiRow['questionnaire_attempts'] ?? 0);
+            $aiMetricsByCourse[$cid] = [
+                'inputTokens' => (int)($aiRow['total_input_tokens'] ?? 0),
+                'outputTokens' => (int)($aiRow['total_output_tokens'] ?? 0),
+                'totalTokens' => (int)($aiRow['total_tokens'] ?? 0),
+                'estimatedCostUsd' => round((float)($aiRow['total_estimated_cost_usd'] ?? 0), 6),
+                'syllabusIndexAttempts' => $syllabusIndexAttempts,
+                'syllabusModuleAttempts' => $syllabusModuleAttempts,
+                'questionnaireAttempts' => $questionnaireAttempts,
+                'generationAttempts' => $syllabusIndexAttempts + $syllabusModuleAttempts + $questionnaireAttempts,
+                'fileUploadAttempts' => (int)($aiRow['file_upload_attempts'] ?? 0),
+                'fileUploadSuccesses' => (int)($aiRow['file_upload_successes'] ?? 0),
+            ];
+        }
+    }
 
     $moduleRows = [];
     $moduleIds = [];
@@ -1181,6 +1379,18 @@ function adminCoursesByStatus(string $status, bool $includeDetails = true, int $
             'categoryName' => $courseRow['category_name'],
             'difficulty' => in_array((string)$courseRow['difficulty'], ['basic', 'intermediate', 'advanced'], true) ? (string)$courseRow['difficulty'] : 'intermediate',
             'includeFundamentals' => (int)($courseRow['include_fundamentals'] ?? 0) === 1,
+            'aiMetrics' => $aiMetricsByCourse[$courseId] ?? [
+                'inputTokens' => 0,
+                'outputTokens' => 0,
+                'totalTokens' => 0,
+                'estimatedCostUsd' => 0,
+                'syllabusIndexAttempts' => 0,
+                'syllabusModuleAttempts' => 0,
+                'questionnaireAttempts' => 0,
+                'generationAttempts' => 0,
+                'fileUploadAttempts' => 0,
+                'fileUploadSuccesses' => 0,
+            ],
         ];
     }
     return $all;

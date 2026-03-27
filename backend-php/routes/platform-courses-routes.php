@@ -70,6 +70,145 @@ function parseIncludeFundamentalsValue($raw): bool {
     return $value === '1' || $value === 'true' || $value === 'yes' || $value === 'si';
 }
 
+function courseNotificationGlobalSettingKey(string $type): string {
+    $map = [
+        'course_enrollment' => 'notifGlobalCourseEnrollment',
+        'course_due_soon' => 'notifGlobalCourseDueSoon',
+        'course_due_expired' => 'notifGlobalCourseDueExpired',
+        'inactivity_reminder' => 'notifGlobalInactivityReminder',
+        'course_updated' => 'notifGlobalCourseUpdated',
+        'course_status_change' => 'notifGlobalCourseStatusChange',
+        'course_due_date_changed' => 'notifGlobalCourseDueDateChanged',
+        'evaluation_result' => 'notifGlobalEvaluationResult',
+        'module_unlocked' => 'notifGlobalModuleUnlocked',
+        'course_completed' => 'notifGlobalCourseCompleted',
+    ];
+    return $map[$type] ?? '';
+}
+
+function courseNotificationsHasPreferencesTable(): bool {
+    static $exists = null;
+    if ($exists !== null) {
+        return $exists;
+    }
+    $exists = (int)(one(
+        "SELECT COUNT(*) AS total
+         FROM INFORMATION_SCHEMA.TABLES
+         WHERE TABLE_SCHEMA = DATABASE()
+           AND TABLE_NAME = 'notification_preferences'"
+    )['total'] ?? 0) > 0;
+    return $exists;
+}
+
+function courseNotificationAllowedForUser(int $userId, string $type): bool {
+    $settingKey = courseNotificationGlobalSettingKey($type);
+    if ($settingKey !== '') {
+        $global = one('SELECT `value` FROM app_settings WHERE `key` = ? LIMIT 1', [$settingKey]);
+        if ($global && strtolower(trim((string)$global['value'])) === 'false') {
+            return false;
+        }
+    }
+    if (!courseNotificationsHasPreferencesTable()) {
+        return true;
+    }
+    $row = one('SELECT enabled FROM notification_preferences WHERE user_id = ? AND notification_type = ? LIMIT 1', [$userId, $type]);
+    if (!$row) {
+        return true;
+    }
+    return (int)($row['enabled'] ?? 0) === 1;
+}
+
+function notifyUsers(array $userIds, string $title, string $description, string $link, string $notificationType): void {
+    if (count($userIds) === 0) {
+        return;
+    }
+    $uniqueIds = array_values(array_unique(array_map(static fn($id): int => (int)$id, $userIds)));
+    foreach ($uniqueIds as $userId) {
+        if ($userId <= 0) {
+            continue;
+        }
+        if (!courseNotificationAllowedForUser($userId, $notificationType)) {
+            continue;
+        }
+        execSql(
+            'INSERT INTO notifications (user_id, title, description, link) VALUES (?, ?, ?, ?)',
+            [$userId, $title, $description, $link]
+        );
+    }
+}
+
+function awardBadgesForStudentEvaluation(int $studentId, int $courseId, int $moduleId, float $score, bool $passed, bool $isCourseCompleted): void {
+    $badges = many('SELECT id, criteria_type, criteria_value FROM badges', []);
+    if (count($badges) === 0) {
+        return;
+    }
+    $earnedRows = many('SELECT badge_id FROM user_badges WHERE user_id = ?', [$studentId]);
+    $earnedLookup = [];
+    foreach ($earnedRows as $earnedRow) {
+        $badgeId = (int)($earnedRow['badge_id'] ?? 0);
+        if ($badgeId > 0) {
+            $earnedLookup[$badgeId] = true;
+        }
+    }
+    foreach ($badges as $badge) {
+        $badgeId = (int)($badge['id'] ?? 0);
+        if ($badgeId <= 0 || array_key_exists($badgeId, $earnedLookup)) {
+            continue;
+        }
+        $criteriaType = strtoupper(trim((string)($badge['criteria_type'] ?? '')));
+        $criteriaValue = isset($badge['criteria_value']) ? (float)$badge['criteria_value'] : null;
+        $shouldAward = false;
+        if ($criteriaType === 'SCORE') {
+            if ($criteriaValue !== null && $score >= $criteriaValue) {
+                $shouldAward = true;
+            }
+        } elseif ($criteriaType === 'FIRST_PASS') {
+            $row = one('SELECT COUNT(*) AS total FROM evaluation_submissions WHERE student_id = ? AND passed = 1', [$studentId]);
+            if ((int)($row['total'] ?? 0) === 1) {
+                $shouldAward = true;
+            }
+        } elseif ($criteriaType === 'COURSE_COMPLETION') {
+            $shouldAward = $isCourseCompleted;
+        } elseif ($criteriaType === 'COURSE_COUNT') {
+            if ($criteriaValue !== null) {
+                $row = one('SELECT COUNT(*) AS total FROM course_enrollments WHERE student_id = ? AND status = "completed"', [$studentId]);
+                if ((int)($row['total'] ?? 0) >= (int)$criteriaValue) {
+                    $shouldAward = true;
+                }
+            }
+        } elseif ($criteriaType === 'PERFECT_STREAK') {
+            if ($criteriaValue !== null && (int)$criteriaValue > 0) {
+                $limit = (int)$criteriaValue;
+                $scores = many('SELECT score FROM evaluation_submissions WHERE student_id = ? ORDER BY submitted_at DESC LIMIT ' . $limit, [$studentId]);
+                if (count($scores) === $limit) {
+                    $allPerfect = true;
+                    foreach ($scores as $scoreRow) {
+                        if ((float)($scoreRow['score'] ?? 0) < 100) {
+                            $allPerfect = false;
+                            break;
+                        }
+                    }
+                    $shouldAward = $allPerfect;
+                }
+            }
+        } elseif ($criteriaType === 'FIRST_TRY') {
+            $row = one('SELECT COUNT(*) AS total FROM evaluation_submissions WHERE student_id = ? AND module_id = ?', [$studentId, $moduleId]);
+            if ((int)($row['total'] ?? 0) === 1 && $passed) {
+                $shouldAward = true;
+            }
+        } elseif ($criteriaType === 'FIRST_COURSE') {
+            $row = one('SELECT COUNT(*) AS total FROM course_enrollments WHERE student_id = ?', [$studentId]);
+            if ((int)($row['total'] ?? 0) >= 1) {
+                $shouldAward = true;
+            }
+        }
+        if ($shouldAward) {
+            execSql('INSERT IGNORE INTO user_badges (user_id, badge_id) VALUES (?, ?)', [$studentId, $badgeId]);
+            $earnedLookup[$badgeId] = true;
+        }
+    }
+}
+
 function handlePlatformCoursesRoutes(string $method, string $path): void {
     if ($method === 'GET' && $path === '/api/courses') {
         $role = (string)($_GET['role'] ?? '');
@@ -122,7 +261,18 @@ function handlePlatformCoursesRoutes(string $method, string $path): void {
         if ($title === '') {
             jsonResponse(400, ['error' => 'El título es requerido.']);
         }
+        $previousCourse = one('SELECT title FROM courses WHERE id = ?', [$courseId]);
+        $previousTitle = (string)($previousCourse['title'] ?? 'curso');
         execSql('UPDATE courses SET title = ?, category_id = ?, difficulty = ?, include_fundamentals = ? WHERE id = ?', [$title, $categoryId, $difficulty, $includeFundamentals, $courseId]);
+        $studentRows = many('SELECT student_id FROM course_enrollments WHERE course_id = ?', [$courseId]);
+        $studentIds = array_map(static fn(array $row): int => (int)$row['student_id'], $studentRows);
+        notifyUsers(
+            $studentIds,
+            'Actualización en tu curso',
+            'El curso "' . $previousTitle . '" ahora se muestra como "' . $title . '". Revisa el contenido actualizado.',
+            '/courses/' . $courseId,
+            'course_updated'
+        );
         jsonResponse(200, ['data' => ['success' => true]]);
     }
 
@@ -133,6 +283,8 @@ function handlePlatformCoursesRoutes(string $method, string $path): void {
         if ($action === '') {
             jsonResponse(400, ['error' => 'La acción es requerida.']);
         }
+        $course = one('SELECT title FROM courses WHERE id = ?', [$courseId]);
+        $courseTitle = (string)($course['title'] ?? 'curso');
         if ($action === 'archive') {
             execSql('UPDATE courses SET status = "archived" WHERE id = ?', [$courseId]);
         } elseif ($action === 'suspend') {
@@ -141,6 +293,15 @@ function handlePlatformCoursesRoutes(string $method, string $path): void {
             execSql('UPDATE courses SET status = "active" WHERE id = ?', [$courseId]);
         } else {
             jsonResponse(400, ['error' => 'Acción inválida.']);
+        }
+        $studentRows = many('SELECT student_id FROM course_enrollments WHERE course_id = ?', [$courseId]);
+        $studentIds = array_map(static fn(array $row): int => (int)$row['student_id'], $studentRows);
+        if ($action === 'suspend') {
+            notifyUsers($studentIds, 'Curso suspendido', 'El curso "' . $courseTitle . '" fue suspendido temporalmente por administración.', '/courses/' . $courseId, 'course_status_change');
+        } elseif ($action === 'reactivate' || $action === 'restore') {
+            notifyUsers($studentIds, 'Curso reactivado', 'El curso "' . $courseTitle . '" está activo nuevamente y puedes continuar.', '/courses/' . $courseId, 'course_status_change');
+        } elseif ($action === 'archive') {
+            notifyUsers($studentIds, 'Curso archivado', 'El curso "' . $courseTitle . '" fue archivado y ya no recibirá nuevas actualizaciones.', '/courses/' . $courseId, 'course_status_change');
         }
         jsonResponse(200, ['data' => ['success' => true]]);
     }
@@ -159,11 +320,18 @@ function handlePlatformCoursesRoutes(string $method, string $path): void {
         $pdo = db();
         $pdo->beginTransaction();
         try {
-            $current = many('SELECT student_id FROM course_enrollments WHERE course_id = ?', [$courseId]);
+            $current = many('SELECT student_id, due_date FROM course_enrollments WHERE course_id = ?', [$courseId]);
             $currentIds = array_map(fn(array $row): int => (int)$row['student_id'], $current);
             $currentIdSet = [];
+            $currentDueDateByStudent = [];
             foreach ($currentIds as $currentId) {
                 $currentIdSet[$currentId] = true;
+            }
+            foreach ($current as $currentRow) {
+                $currentStudentId = (int)($currentRow['student_id'] ?? 0);
+                if ($currentStudentId > 0) {
+                    $currentDueDateByStudent[$currentStudentId] = isset($currentRow['due_date']) && $currentRow['due_date'] !== null ? (string)$currentRow['due_date'] : null;
+                }
             }
             $incomingByStudent = [];
             foreach ($studentEnrollments as $enrollment) {
@@ -187,20 +355,40 @@ function handlePlatformCoursesRoutes(string $method, string $path): void {
             }
             $updateEnrollmentStmt = $pdo->prepare('UPDATE course_enrollments SET due_date = ? WHERE course_id = ? AND student_id = ?');
             $insertEnrollmentStmt = $pdo->prepare('INSERT INTO course_enrollments (student_id, course_id, due_date) VALUES (?, ?, ?)');
+            $dueDateChangedIds = [];
             foreach ($incomingByStudent as $sid => $dueDate) {
                 if (isset($currentIdSet[$sid])) {
                     $updateEnrollmentStmt->execute([$dueDate ?: null, $courseId, $sid]);
+                    $previousDueDate = $currentDueDateByStudent[$sid] ?? null;
+                    $nextDueDate = $dueDate ?: null;
+                    if ($previousDueDate !== $nextDueDate) {
+                        $dueDateChangedIds[] = $sid;
+                    }
                 } else {
                     $insertEnrollmentStmt->execute([$sid, $courseId, $dueDate ?: null]);
                     $newIds[] = $sid;
                 }
             }
+            $course = one('SELECT title FROM courses WHERE id = ?', [$courseId]);
+            $courseTitle = $course['title'] ?? 'curso';
             if (count($newIds) > 0) {
-                $course = one('SELECT title FROM courses WHERE id = ?', [$courseId]);
-                $courseTitle = $course['title'] ?? 'curso';
                 $insertNotificationStmt = $pdo->prepare('INSERT INTO notifications (user_id, title, description, link) VALUES (?, ?, ?, ?)');
                 foreach ($newIds as $sid) {
-                    $insertNotificationStmt->execute([$sid, 'Inscrito en un nuevo curso', 'Has sido inscrito en el curso "' . $courseTitle . '". ¡Empieza a aprender ahora!', '/']);
+                    if (!courseNotificationAllowedForUser($sid, 'course_enrollment')) {
+                        continue;
+                    }
+                    $insertNotificationStmt->execute([$sid, 'Inscrito en un nuevo curso', 'Has sido inscrito en el curso "' . $courseTitle . '". ¡Empieza a aprender ahora!', '/courses/' . $courseId]);
+                }
+            }
+            if (count($dueDateChangedIds) > 0) {
+                $insertNotificationStmt = $pdo->prepare('INSERT INTO notifications (user_id, title, description, link) VALUES (?, ?, ?, ?)');
+                foreach (array_values(array_unique($dueDateChangedIds)) as $sid) {
+                    if (!courseNotificationAllowedForUser($sid, 'course_due_date_changed')) {
+                        continue;
+                    }
+                    $dueDateValue = $incomingByStudent[$sid] ?? null;
+                    $dueDateLabel = $dueDateValue ? (new DateTime((string)$dueDateValue))->format('d/m/Y H:i') : 'sin fecha límite';
+                    $insertNotificationStmt->execute([$sid, 'Fecha límite actualizada', 'El curso "' . $courseTitle . '" tiene nueva fecha límite: ' . $dueDateLabel . '.', '/courses/' . $courseId]);
                 }
             }
             $pdo->commit();
@@ -409,10 +597,21 @@ function handlePlatformCoursesRoutes(string $method, string $path): void {
             $setting = one('SELECT `value` FROM app_settings WHERE `key` = "minPassingScore"');
             $passingScore = $setting ? (float)$setting['value'] : 70.0;
             $passed = $score >= $passingScore;
+            $course = one('SELECT title FROM courses WHERE id = ?', [$courseId]);
+            $courseTitle = (string)($course['title'] ?? 'curso');
+            $module = one('SELECT title, module_order FROM course_modules WHERE id = ? AND course_id = ?', [$moduleId, $courseId]);
+            $moduleTitle = (string)($module['title'] ?? 'módulo');
+            $moduleOrder = (int)($module['module_order'] ?? 0);
             execSql(
                 'INSERT INTO evaluation_submissions (student_id, module_id, score, passed, submitted_at) VALUES (?, ?, ?, ?, NOW())',
                 [$studentId, $moduleId, $score, $passed ? 1 : 0]
             );
+            if (courseNotificationAllowedForUser($studentId, 'evaluation_result')) {
+                execSql(
+                    'INSERT INTO notifications (user_id, title, description, link) VALUES (?, ?, ?, ?)',
+                    [$studentId, $passed ? 'Evaluación aprobada' : 'Evaluación no aprobada', 'Resultado del módulo "' . $moduleTitle . '" en "' . $courseTitle . '": ' . number_format($score, 1) . '%.', '/courses/' . $courseId]
+                );
+            }
             $courseModules = many('SELECT id FROM course_modules WHERE course_id = ?', [$courseId]);
             $courseModuleIds = array_values(array_map(fn(array $row): int => (int)$row['id'], $courseModules));
             $totalModules = count($courseModuleIds);
@@ -460,8 +659,36 @@ function handlePlatformCoursesRoutes(string $method, string $path): void {
                 );
                 $finalScore = (float)($finalRow['finalScore'] ?? 0);
                 execSql('UPDATE course_enrollments SET status = "completed", final_score = ? WHERE student_id = ? AND course_id = ?', [$finalScore, $studentId, $courseId]);
+                if (courseNotificationAllowedForUser($studentId, 'course_completed')) {
+                    execSql(
+                        'INSERT INTO notifications (user_id, title, description, link) VALUES (?, ?, ?, ?)',
+                        [$studentId, 'Curso completado', 'Completaste el curso "' . $courseTitle . '" con puntaje final de ' . number_format($finalScore, 1) . '%.', '/courses/' . $courseId]
+                    );
+                }
+                try {
+                    awardBadgesForStudentEvaluation($studentId, $courseId, $moduleId, $score, $passed, true);
+                } catch (Throwable $badgeError) {
+                    error_log('Error awarding student badges: ' . $badgeError->getMessage());
+                }
                 $pdo->commit();
                 jsonResponse(200, ['data' => ['passed' => $passed, 'finalScore' => $finalScore]]);
+            }
+            if ($passed && $moduleOrder > 0) {
+                $nextModule = one('SELECT title FROM course_modules WHERE course_id = ? AND module_order = ? LIMIT 1', [$courseId, $moduleOrder + 1]);
+                if ($nextModule) {
+                    $nextModuleTitle = (string)($nextModule['title'] ?? 'siguiente módulo');
+                    if (courseNotificationAllowedForUser($studentId, 'module_unlocked')) {
+                        execSql(
+                            'INSERT INTO notifications (user_id, title, description, link) VALUES (?, ?, ?, ?)',
+                            [$studentId, 'Módulo desbloqueado', 'Has desbloqueado "' . $nextModuleTitle . '" en el curso "' . $courseTitle . '".', '/courses/' . $courseId]
+                        );
+                    }
+                }
+            }
+            try {
+                awardBadgesForStudentEvaluation($studentId, $courseId, $moduleId, $score, $passed, false);
+            } catch (Throwable $badgeError) {
+                error_log('Error awarding student badges: ' . $badgeError->getMessage());
             }
             $pdo->commit();
             jsonResponse(200, ['data' => ['passed' => $passed]]);

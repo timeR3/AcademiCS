@@ -137,6 +137,7 @@ export function CourseCreationView({ onCourseSaved, isEditing = false, isAdminVi
                 structuredContent: allStructuredContent,
                 classificationMap: classificationMap,
                 difficulty: courseDifficulty,
+                courseId,
             });
 
             setGeneratedLearningPath(currentPath =>
@@ -466,6 +467,7 @@ export function CourseCreationView({ onCourseSaved, isEditing = false, isAdminVi
             includeFundamentals={includeFundamentals}
             onDifficultyChange={setCourseDifficulty}
             onIncludeFundamentalsChange={setIncludeFundamentals}
+            courseId={courseId ? String(courseId) : null}
             isLocked={!isCourseSaved}
             lockReason="Primero debes crear y guardar el curso para habilitar este paso."
         />

@@ -12,7 +12,7 @@ type NotificationRow = RowDataPacket & {
 };
 
 export async function fetchUserNotificationsService(userId: string): Promise<Notification[]> {
-  const sql = 'SELECT id, title, description, link, is_read, created_at FROM notifications WHERE user_id = ? ORDER BY created_at DESC LIMIT 10';
+  const sql = 'SELECT id, title, description, link, is_read, created_at FROM notifications WHERE user_id = ? AND is_read = 0 ORDER BY created_at DESC LIMIT 10';
   const [results] = await query(sql, [Number(userId)]) as [NotificationRow[], unknown];
 
   return results.map((notification) => ({

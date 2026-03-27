@@ -8,7 +8,7 @@ import type { CourseLevel, Course, Badge, IncorrectAnswer } from '@/types/index'
 import { useCourse } from '@/context/CourseContext';
 import { CourseCard } from '@/components/shared/CourseCard';
 import { CourseContentView } from './CourseContentView';
-import { ArrowLeft, Award, BookOpen, CheckCircle } from 'lucide-react';
+import { ArrowLeft, Award, BookOpen, CheckCircle, Sparkles } from 'lucide-react';
 import { Button } from '../ui/button';
 import { ContinueLearningCard } from './ContinueLearningCard';
 import { useAuth } from '@/context/AuthContext';
@@ -18,6 +18,7 @@ import { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from '../ui/
 import { Separator } from '../ui/separator';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { apiGet } from '@/lib/api-client';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '../ui/dialog';
 
 type Result = { score: number; passed: boolean; incorrectAnswers: IncorrectAnswer[], finalScore?: number } | null;
 
@@ -26,8 +27,13 @@ export default function StudentDashboard() {
   const [currentLevel, setCurrentLevel] = useState<CourseLevel | null>(null);
   const [result, setResult] = useState<Result>(null);
   const [badges, setBadges] = useState<Badge[]>([]);
+  const [newlyEarnedBadges, setNewlyEarnedBadges] = useState<Badge[]>([]);
+  const [isBadgeCelebrationOpen, setIsBadgeCelebrationOpen] = useState(false);
+  const [celebrationBadgeIndex, setCelebrationBadgeIndex] = useState(0);
   const [loadingCourseId, setLoadingCourseId] = useState<string | null>(null);
   const prefetchedCourseIdsRef = useRef<Set<string>>(new Set());
+  const previousBadgeIdsRef = useRef<Set<string>>(new Set());
+  const hasLoadedBadgesRef = useRef(false);
   const { user } = useAuth();
 
   useEffect(() => {
@@ -37,6 +43,19 @@ export default function StudentDashboard() {
                 const userId = encodeURIComponent(user.id);
                 const userBadges = await apiGet<Badge[]>(`/api/users/${userId}/badges`);
                 setBadges(userBadges);
+                const currentBadgeIds = new Set(userBadges.map((badge) => badge.id));
+                if (hasLoadedBadgesRef.current) {
+                  const previousBadgeIds = previousBadgeIdsRef.current;
+                  const earnedNow = userBadges.filter((badge) => !previousBadgeIds.has(badge.id));
+                  if (earnedNow.length > 0) {
+                    setNewlyEarnedBadges(earnedNow);
+                    setCelebrationBadgeIndex(0);
+                    setIsBadgeCelebrationOpen(true);
+                  }
+                } else {
+                  hasLoadedBadgesRef.current = true;
+                }
+                previousBadgeIdsRef.current = currentBadgeIds;
             } catch (error) {
                 console.error("Failed to load user badges", error);
                 setBadges([]);
@@ -47,6 +66,40 @@ export default function StudentDashboard() {
         loadBadges();
     }
   }, [user, studentView, courses]); // Refresh badges when courses change (after an evaluation)
+
+  useEffect(() => {
+    if (!isBadgeCelebrationOpen || newlyEarnedBadges.length <= 1) {
+      return;
+    }
+    const timeoutId = window.setTimeout(() => {
+      setCelebrationBadgeIndex((previousIndex) => {
+        if (previousIndex + 1 >= newlyEarnedBadges.length) {
+          return previousIndex;
+        }
+        return previousIndex + 1;
+      });
+    }, 1500);
+    return () => {
+      window.clearTimeout(timeoutId);
+    };
+  }, [celebrationBadgeIndex, isBadgeCelebrationOpen, newlyEarnedBadges]);
+
+  useEffect(() => {
+    if (!isBadgeCelebrationOpen || newlyEarnedBadges.length === 0) {
+      return;
+    }
+    if (celebrationBadgeIndex < newlyEarnedBadges.length - 1) {
+      return;
+    }
+    const timeoutId = window.setTimeout(() => {
+      setIsBadgeCelebrationOpen(false);
+      setNewlyEarnedBadges([]);
+      setCelebrationBadgeIndex(0);
+    }, 1800);
+    return () => {
+      window.clearTimeout(timeoutId);
+    };
+  }, [celebrationBadgeIndex, isBadgeCelebrationOpen, newlyEarnedBadges]);
 
   const loadDetailedCourse = useCallback(async (courseId: string): Promise<Course | null> => {
     if (!user?.id) {
@@ -360,8 +413,37 @@ export default function StudentDashboard() {
     }
   }
 
+  const activeCelebrationBadge = newlyEarnedBadges[celebrationBadgeIndex] || null;
+
   return (
     <div className="w-full h-full min-w-0 flex flex-col">
+      <Dialog open={isBadgeCelebrationOpen && !!activeCelebrationBadge} onOpenChange={setIsBadgeCelebrationOpen}>
+        <DialogContent className="sm:max-w-md">
+          {activeCelebrationBadge ? (
+            <div className="space-y-6 text-center">
+              <DialogHeader>
+                <DialogTitle className="flex items-center justify-center gap-2 text-xl">
+                  <Sparkles className="h-5 w-5 text-primary" />
+                  ¡Nueva insignia!
+                </DialogTitle>
+                <DialogDescription>Has desbloqueado un nuevo logro en tu ruta de aprendizaje.</DialogDescription>
+              </DialogHeader>
+              <div className="mx-auto flex h-32 w-32 items-center justify-center rounded-full bg-primary/10 transition-transform duration-700 scale-125 animate-pulse">
+                <BadgeIcon key={activeCelebrationBadge.id} iconId={activeCelebrationBadge.iconId} className="h-16 w-16 text-primary" />
+              </div>
+              <div className="space-y-1">
+                <p className="text-lg font-semibold">{activeCelebrationBadge.name}</p>
+                <p className="text-sm text-muted-foreground">{activeCelebrationBadge.description}</p>
+              </div>
+              {newlyEarnedBadges.length > 1 ? (
+                <p className="text-xs text-muted-foreground">
+                  Insignia {celebrationBadgeIndex + 1} de {newlyEarnedBadges.length}
+                </p>
+              ) : null}
+            </div>
+          ) : null}
+        </DialogContent>
+      </Dialog>
       {renderContent()}
       {result && <ResultsModal result={result} onNext={closeResultsModal} isCourseCompleted={isCourseCompletedAfterThisModule || false} />}
     </div>

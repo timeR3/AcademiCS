@@ -1,33 +1,32 @@
 
 'use client';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { Card, CardHeader, CardTitle, CardContent, CardDescription } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Input } from '@/components/ui/input';
-import type { Course, Teacher, User, StudentProgress } from '@/types';
+import type { Course, User, StudentProgress } from '@/types';
 import { Badge } from '../ui/badge';
 import { ScrollArea } from '../ui/scroll-area';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '../ui/dialog';
 import { Button } from '../ui/button';
-import { Pencil, Trash2, Search, Tag, Users, Star, Loader2 } from 'lucide-react';
+import { Search, Tag, Users, Star, Loader2 } from 'lucide-react';
 import { useCourse } from '@/context/CourseContext';
 import { Progress } from '../ui/progress';
 import { Separator } from '../ui/separator';
-import { format } from 'date-fns';
+import { format, isValid, parseISO } from 'date-fns';
 import { es } from 'date-fns/locale';
 
 interface CoursesViewProps {
-    onEditCourse: (course: Course) => Promise<void>;
-    onPrefetchCourse: (course: Course) => void;
+    onPrefetchCourse: (course: Course) => Promise<void>;
 }
 
-export function CoursesView({ onEditCourse, onPrefetchCourse }: CoursesViewProps) {
-    const { courses, archivedCourses, allUsers, refreshCourses } = useCourse();
+export function CoursesView({ onPrefetchCourse }: CoursesViewProps) {
+    const { courses, archivedCourses, allUsers } = useCourse();
     const [allCourses, setAllCourses] = useState<Course[]>([]);
     const [searchTerm, setSearchTerm] = useState('');
     const [loading, setLoading] = useState(true);
-    const [selectedCourse, setSelectedCourse] = useState<Course | null>(null);
-    const [isOpeningEditor, setIsOpeningEditor] = useState(false);
+    const [selectedCourseId, setSelectedCourseId] = useState<string | null>(null);
+    const [isLoadingDetails, setIsLoadingDetails] = useState(false);
 
     useEffect(() => {
         const combined = [...courses, ...archivedCourses];
@@ -45,30 +44,74 @@ export function CoursesView({ onEditCourse, onPrefetchCourse }: CoursesViewProps
     };
 
     const handleCloseDialog = () => {
-        setSelectedCourse(null);
-    }
-    
-    const teacherForSelectedCourse = selectedCourse ? getTeacherForCourse(selectedCourse.teacherId) : null;
-    
-    const handleEditClick = async () => {
-        if(selectedCourse) {
-            setIsOpeningEditor(true);
-            try {
-                await onEditCourse(selectedCourse);
-                handleCloseDialog();
-            } finally {
-                setIsOpeningEditor(false);
-            }
-        }
+        setSelectedCourseId(null);
+        setIsLoadingDetails(false);
     }
 
+    const selectedCourse = useMemo(() => {
+        if (!selectedCourseId) {
+            return null;
+        }
+        return allCourses.find(course => course.id === selectedCourseId) ?? null;
+    }, [allCourses, selectedCourseId]);
+    const teacherForSelectedCourse = selectedCourse ? getTeacherForCourse(selectedCourse.teacherId) : null;
+
+    const studentRows = useMemo<StudentProgress[]>(() => {
+        if (!selectedCourse) {
+            return [];
+        }
+        if ((selectedCourse.studentProgress?.length ?? 0) > 0) {
+            return selectedCourse.studentProgress ?? [];
+        }
+        return (selectedCourse.students ?? []).map(student => {
+            const user = allUsers.find(item => item.id === student.studentId);
+            return {
+                id: student.studentId,
+                name: user?.name || `Estudiante ${student.studentId}`,
+                email: user?.email || '',
+                status: user?.status || 'active',
+                roles: user?.roles || ['student'],
+                enrollmentStatus: 'in-progress',
+                completedModulesCount: 0,
+                totalModulesCount: selectedCourse.levels.length,
+                finalScore: undefined,
+                averageScore: 0,
+                dueDate: student.dueDate ? String(student.dueDate) : undefined,
+            };
+        });
+    }, [selectedCourse, allUsers]);
+
+    const handleOpenCourse = async (course: Course) => {
+        setSelectedCourseId(course.id);
+        setIsLoadingDetails(true);
+        try {
+            await onPrefetchCourse(course);
+        } finally {
+            setIsLoadingDetails(false);
+        }
+    };
+
+    const formatDueDate = (dateValue?: string | null) => {
+        if (!dateValue) {
+            return null;
+        }
+        const parsed = parseISO(dateValue);
+        if (!isValid(parsed)) {
+            return null;
+        }
+        return format(parsed, 'dd MMM, yyyy', { locale: es });
+    };
+
+    const formatTokens = (value: number | undefined) => new Intl.NumberFormat('es-ES').format(value ?? 0);
+    const formatUsd = (value: number | undefined) =>
+        new Intl.NumberFormat('es-ES', { style: 'currency', currency: 'USD', minimumFractionDigits: 4, maximumFractionDigits: 6 }).format(value ?? 0);
 
     return (
         <>
             <Card className="premium-surface h-full flex flex-col">
                 <CardHeader>
                     <CardTitle>Gestión de Cursos</CardTitle>
-                    <CardDescription>Visualiza, busca y selecciona un curso para ver más detalles o editarlo.</CardDescription>
+                    <CardDescription>Visualiza, busca y selecciona un curso para ver sus métricas y progreso.</CardDescription>
                 </CardHeader>
                 <CardContent className="flex-grow flex flex-col">
                     <div className="relative mb-4">
@@ -89,18 +132,19 @@ export function CoursesView({ onEditCourse, onPrefetchCourse }: CoursesViewProps
                                         <TableHead>Título del Curso</TableHead>
                                         <TableHead className="hidden md:table-cell">Profesor</TableHead>
                                         <TableHead className="hidden lg:table-cell">Categoría</TableHead>
+                                        <TableHead className="hidden xl:table-cell">Uso IA</TableHead>
                                         <TableHead className="text-center">Inscritos</TableHead>
                                         <TableHead className="text-center">Estado</TableHead>
                                     </TableRow>
                                 </TableHeader>
                                 <TableBody>
                                     {loading ? (
-                                        <TableRow><TableCell colSpan={5} className="text-center h-24">Cargando cursos...</TableCell></TableRow>
+                                        <TableRow><TableCell colSpan={6} className="text-center h-24">Cargando cursos...</TableCell></TableRow>
                                     ) : filteredCourses.length > 0 ? (
                                         filteredCourses.map(course => {
                                             const teacher = getTeacherForCourse(course.teacherId);
                                             return (
-                                                <TableRow key={course.id} onMouseEnter={() => onPrefetchCourse(course)} onClick={() => setSelectedCourse(course)} className="cursor-pointer">
+                                                <TableRow key={course.id} onMouseEnter={() => { void onPrefetchCourse(course); }} onClick={() => { void handleOpenCourse(course); }} className="cursor-pointer">
                                                     <TableCell className="font-medium">
                                                         <div className="flex flex-col">
                                                            <span>{course.title}</span>
@@ -115,6 +159,12 @@ export function CoursesView({ onEditCourse, onPrefetchCourse }: CoursesViewProps
                                                             <span className="text-xs text-muted-foreground">Sin categoría</span>
                                                         )}
                                                     </TableCell>
+                                                    <TableCell className="hidden xl:table-cell">
+                                                        <div className="space-y-1 text-xs">
+                                                            <div className="font-medium">{formatUsd(course.aiMetrics?.estimatedCostUsd)}</div>
+                                                            <div className="text-muted-foreground">{formatTokens(course.aiMetrics?.totalTokens)} tokens</div>
+                                                        </div>
+                                                    </TableCell>
                                                     <TableCell className="text-center">{course.students.length}</TableCell>
                                                     <TableCell className="text-center">
                                                         <Badge variant={course.status === 'active' ? 'secondary' : 'outline'} className="capitalize">
@@ -125,7 +175,7 @@ export function CoursesView({ onEditCourse, onPrefetchCourse }: CoursesViewProps
                                             );
                                         })
                                     ) : (
-                                        <TableRow><TableCell colSpan={5} className="text-center h-24">No se encontraron cursos.</TableCell></TableRow>
+                                        <TableRow><TableCell colSpan={6} className="text-center h-24">No se encontraron cursos.</TableCell></TableRow>
                                     )}
                                 </TableBody>
                             </Table>
@@ -134,7 +184,7 @@ export function CoursesView({ onEditCourse, onPrefetchCourse }: CoursesViewProps
                     </div>
                 </CardContent>
             </Card>
-            <Dialog open={!!selectedCourse} onOpenChange={(isOpen) => !isOpen && handleCloseDialog()}>
+            <Dialog open={!!selectedCourseId} onOpenChange={(isOpen) => !isOpen && handleCloseDialog()}>
                 <DialogContent className="sm:max-w-4xl">
                     <DialogHeader>
                         <DialogTitle className="font-headline text-2xl">{selectedCourse?.title}</DialogTitle>
@@ -150,6 +200,32 @@ export function CoursesView({ onEditCourse, onPrefetchCourse }: CoursesViewProps
                     </div>
                      <Separator />
                      <div className="space-y-3">
+                        <h3 className="font-semibold">Uso de IA</h3>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                            <div className="rounded-2xl border bg-card p-3">
+                                <p className="text-xs text-muted-foreground">Costo estimado</p>
+                                <p className="text-lg font-semibold">{formatUsd(selectedCourse?.aiMetrics?.estimatedCostUsd)}</p>
+                            </div>
+                            <div className="rounded-2xl border bg-card p-3">
+                                <p className="text-xs text-muted-foreground">Tokens totales</p>
+                                <p className="text-lg font-semibold">{formatTokens(selectedCourse?.aiMetrics?.totalTokens)}</p>
+                            </div>
+                            <div className="rounded-2xl border bg-card p-3">
+                                <p className="text-xs text-muted-foreground">Intentos de generación</p>
+                                <p className="text-lg font-semibold">{selectedCourse?.aiMetrics?.generationAttempts ?? 0}</p>
+                                <p className="text-xs text-muted-foreground">
+                                    Índice {selectedCourse?.aiMetrics?.syllabusIndexAttempts ?? 0} · Módulos {selectedCourse?.aiMetrics?.syllabusModuleAttempts ?? 0} · Cuestionarios {selectedCourse?.aiMetrics?.questionnaireAttempts ?? 0}
+                                </p>
+                            </div>
+                            <div className="rounded-2xl border bg-card p-3">
+                                <p className="text-xs text-muted-foreground">Archivos</p>
+                                <p className="text-lg font-semibold">{selectedCourse?.aiMetrics?.fileUploadSuccesses ?? 0} / {selectedCourse?.aiMetrics?.fileUploadAttempts ?? 0}</p>
+                                <p className="text-xs text-muted-foreground">Subidos / intentos</p>
+                            </div>
+                        </div>
+                     </div>
+                     <Separator />
+                     <div className="space-y-3">
                         <h3 className="font-semibold flex items-center gap-2"><Users /> Progreso de Estudiantes ({selectedCourse?.students?.length || 0} inscritos)</h3>
                         <ScrollArea className="h-60 rounded-xl border">
                              <div className="overflow-x-auto">
@@ -163,9 +239,19 @@ export function CoursesView({ onEditCourse, onPrefetchCourse }: CoursesViewProps
                                     </TableRow>
                                 </TableHeader>
                                 <TableBody>
-                                    {selectedCourse?.studentProgress && selectedCourse.studentProgress.length > 0 ? (
-                                        selectedCourse.studentProgress.map((student: StudentProgress) => {
+                                    {isLoadingDetails && studentRows.length === 0 ? (
+                                        <TableRow>
+                                            <TableCell colSpan={4} className="text-center h-24">
+                                                <span className="inline-flex items-center gap-2 text-sm text-muted-foreground">
+                                                    <Loader2 className="h-4 w-4 animate-spin" />
+                                                    Cargando progreso de estudiantes...
+                                                </span>
+                                            </TableCell>
+                                        </TableRow>
+                                    ) : studentRows.length > 0 ? (
+                                        studentRows.map((student: StudentProgress) => {
                                             const progress = student.totalModulesCount > 0 ? (student.completedModulesCount / student.totalModulesCount) * 100 : 0;
+                                            const formattedDueDate = formatDueDate(student.dueDate ?? null);
                                             return (
                                                 <TableRow key={student.id}>
                                                     <TableCell className="font-medium">{student.name}</TableCell>
@@ -176,10 +262,10 @@ export function CoursesView({ onEditCourse, onPrefetchCourse }: CoursesViewProps
                                                         </div>
                                                     </TableCell>
                                                     <TableCell>
-                                                        {student.dueDate ? format(new Date(student.dueDate), 'dd MMM, yyyy', { locale: es }) : <span className="text-xs text-muted-foreground">-</span>}
+                                                        {formattedDueDate ? formattedDueDate : <span className="text-xs text-muted-foreground">-</span>}
                                                     </TableCell>
                                                     <TableCell className="text-right font-medium">
-                                                        {student.finalScore !== undefined ? (
+                                                        {typeof student.finalScore === 'number' ? (
                                                             <span className="flex items-center justify-end gap-1 text-secondary"><Star className="h-4 w-4"/> {student.finalScore.toFixed(1)}%</span>
                                                         ) : (
                                                             <span className="text-xs text-muted-foreground">En curso</span>
@@ -199,12 +285,7 @@ export function CoursesView({ onEditCourse, onPrefetchCourse }: CoursesViewProps
                         </ScrollArea>
                      </div>
                     <DialogFooter>
-                        <Button variant="outline" onClick={handleCloseDialog} disabled={isOpeningEditor}>Cerrar</Button>
-                        <Button variant="destructive"><Trash2 className="mr-2"/> Eliminar Curso</Button>
-                        <Button onClick={handleEditClick} disabled={isOpeningEditor}>
-                            {isOpeningEditor ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : <Pencil className="mr-2"/>}
-                            {isOpeningEditor ? 'Cargando...' : 'Editar Curso'}
-                        </Button>
+                        <Button variant="outline" onClick={handleCloseDialog}>Cerrar</Button>
                     </DialogFooter>
                 </DialogContent>
             </Dialog>

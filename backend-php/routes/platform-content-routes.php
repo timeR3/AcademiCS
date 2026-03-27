@@ -278,7 +278,7 @@ function distributeTokensByChunk(array $chunks, int $totalTokens): array {
     return $distribution;
 }
 
-function persistTranscriptForHash(int $sharedFileId, string $fileHash, string $base64Content, string $fileName): void {
+function persistTranscriptForHash(int $sharedFileId, string $fileHash, string $base64Content, string $fileName): array {
     try {
         $transcription = transcribePdfFromBase64($base64Content);
     } catch (Throwable $error) {
@@ -333,6 +333,11 @@ function persistTranscriptForHash(int $sharedFileId, string $fileHash, string $b
             );
         }
         $pdo->commit();
+        return [
+            'inputTokens' => $inputTokens,
+            'outputTokens' => $outputTokens,
+            'chunks' => count($chunks),
+        ];
     } catch (Throwable $error) {
         $pdo->rollBack();
         throw new RuntimeException('Paso 6/6: guardando contenido del curso. ' . trim((string)$error->getMessage()), 0, $error);
@@ -342,8 +347,12 @@ function persistTranscriptForHash(int $sharedFileId, string $fileHash, string $b
 function handlePlatformContentRoutes(string $method, string $path): void {
     if ($method === 'POST' && $path === '/api/files/cache') {
         $stage = 'Paso 1/6: preparando el archivo';
+        $courseId = 0;
+        $requestedFileName = '';
+        $fileUploadFailureLogged = false;
         try {
             $payload = parseBody();
+            $courseId = max(0, (int)($payload['courseId'] ?? 0));
             $dataUri = (string)($payload['dataUri'] ?? '');
             if ($dataUri === '') {
                 jsonResponse(400, ['error' => 'No recibimos el archivo para procesar.']);
@@ -382,13 +391,56 @@ function handlePlatformContentRoutes(string $method, string $path): void {
                     execSql('UPDATE shared_files SET status = "processing" WHERE id = ?', [$sharedFileId]);
                     try {
                         $stage = 'Paso 4/6: transcribiendo el archivo';
-                        persistTranscriptForHash($sharedFileId, $fileHash, $base64Content, $effectiveFileName);
+                        $usage = persistTranscriptForHash($sharedFileId, $fileHash, $base64Content, $effectiveFileName);
+                        logAiUsageEvent([
+                            'courseId' => $courseId,
+                            'eventType' => 'file_upload',
+                            'status' => 'success',
+                            'modelId' => contentAiModelId(),
+                            'inputTokens' => (int)($usage['inputTokens'] ?? 0),
+                            'outputTokens' => (int)($usage['outputTokens'] ?? 0),
+                            'metadata' => [
+                                'fileHash' => $fileHash,
+                                'fileName' => $effectiveFileName,
+                                'sharedFileId' => $sharedFileId,
+                                'chunks' => (int)($usage['chunks'] ?? 0),
+                                'cachedFile' => true,
+                                'reprocessed' => true,
+                            ],
+                        ]);
                     } catch (Throwable $error) {
                         execSql('UPDATE shared_files SET status = "failed" WHERE id = ?', [$sharedFileId]);
+                        logAiUsageEvent([
+                            'courseId' => $courseId,
+                            'eventType' => 'file_upload',
+                            'status' => 'failed',
+                            'modelId' => contentAiModelId(),
+                            'metadata' => [
+                                'fileHash' => $fileHash,
+                                'fileName' => $effectiveFileName,
+                                'sharedFileId' => $sharedFileId,
+                                'cachedFile' => true,
+                                'reprocessed' => true,
+                                'error' => trim((string)$error->getMessage()),
+                            ],
+                        ]);
+                        $fileUploadFailureLogged = true;
                         throw $error;
                     }
                     jsonResponse(200, ['data' => ['hash' => $fileHash, 'status' => 'transcribed', 'stage' => 'Paso 6/6: guardando contenido del curso']]);
                 }
+                logAiUsageEvent([
+                    'courseId' => $courseId,
+                    'eventType' => 'file_upload',
+                    'status' => 'success',
+                    'metadata' => [
+                        'fileHash' => $fileHash,
+                        'fileName' => $effectiveFileName,
+                        'sharedFileId' => $sharedFileId,
+                        'cachedFile' => true,
+                        'reprocessed' => false,
+                    ],
+                ]);
                 jsonResponse(200, ['data' => ['hash' => $fileHash, 'status' => 'cached', 'stage' => 'Completado: ya lo tenías procesado']]);
             }
             execSql(
@@ -398,14 +450,57 @@ function handlePlatformContentRoutes(string $method, string $path): void {
             $sharedFileId = (int)db()->lastInsertId();
             try {
                 $stage = 'Paso 4/6: transcribiendo el archivo';
-                persistTranscriptForHash($sharedFileId, $fileHash, $base64Content, $requestedFileName);
+                $usage = persistTranscriptForHash($sharedFileId, $fileHash, $base64Content, $requestedFileName);
+                logAiUsageEvent([
+                    'courseId' => $courseId,
+                    'eventType' => 'file_upload',
+                    'status' => 'success',
+                    'modelId' => contentAiModelId(),
+                    'inputTokens' => (int)($usage['inputTokens'] ?? 0),
+                    'outputTokens' => (int)($usage['outputTokens'] ?? 0),
+                    'metadata' => [
+                        'fileHash' => $fileHash,
+                        'fileName' => $requestedFileName,
+                        'sharedFileId' => $sharedFileId,
+                        'chunks' => (int)($usage['chunks'] ?? 0),
+                        'cachedFile' => false,
+                        'reprocessed' => false,
+                    ],
+                ]);
             } catch (Throwable $error) {
                 execSql('UPDATE shared_files SET status = "failed" WHERE id = ?', [$sharedFileId]);
+                logAiUsageEvent([
+                    'courseId' => $courseId,
+                    'eventType' => 'file_upload',
+                    'status' => 'failed',
+                    'modelId' => contentAiModelId(),
+                    'metadata' => [
+                        'fileHash' => $fileHash,
+                        'fileName' => $requestedFileName,
+                        'sharedFileId' => $sharedFileId,
+                        'cachedFile' => false,
+                        'reprocessed' => false,
+                        'error' => trim((string)$error->getMessage()),
+                    ],
+                ]);
+                $fileUploadFailureLogged = true;
                 throw $error;
             }
             jsonResponse(200, ['data' => ['hash' => $fileHash, 'status' => 'transcribed', 'stage' => 'Paso 6/6: guardando contenido del curso']]);
         } catch (Throwable $error) {
             $message = trim((string)$error->getMessage());
+            if (!$fileUploadFailureLogged) {
+                logAiUsageEvent([
+                    'courseId' => $courseId,
+                    'eventType' => 'file_upload',
+                    'status' => 'failed',
+                    'metadata' => [
+                        'fileName' => $requestedFileName,
+                        'stage' => $stage,
+                        'error' => $message !== '' ? $message : 'Error interno durante el procesamiento.',
+                    ],
+                ]);
+            }
             if ($message === '') {
                 $message = 'Error interno durante el procesamiento.';
             }

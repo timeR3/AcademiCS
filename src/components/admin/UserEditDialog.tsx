@@ -18,12 +18,13 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Checkbox } from '@/components/ui/checkbox';
 import { useToast } from '@/hooks/use-toast';
-import type { User, Role, UserRole } from '@/types';
+import type { NotificationPreferenceType, NotificationPreferences, User, Role, UserRole } from '@/types';
 import { useState, useEffect } from 'react';
 import { Loader2, Save } from 'lucide-react';
 import { Separator } from '../ui/separator';
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '../ui/select';
-import { apiPatch } from '@/lib/api-client';
+import { Switch } from '../ui/switch';
+import { apiGet, apiPatch } from '@/lib/api-client';
 
 interface UserEditDialogProps {
   user: User | null;
@@ -43,9 +44,31 @@ const formSchema = z.object({
 
 type FormData = z.infer<typeof formSchema>;
 
+const notificationPreferenceDefinitions: Array<{ key: NotificationPreferenceType; label: string }> = [
+  { key: 'course_enrollment', label: 'Inscripción a curso' },
+  { key: 'course_due_soon', label: 'Vencimiento próximo' },
+  { key: 'course_due_expired', label: 'Curso vencido' },
+  { key: 'inactivity_reminder', label: 'Inactividad' },
+  { key: 'course_updated', label: 'Actualización de curso' },
+  { key: 'course_status_change', label: 'Cambio de estado del curso' },
+  { key: 'course_due_date_changed', label: 'Cambio de fecha límite' },
+  { key: 'evaluation_result', label: 'Resultado de evaluación' },
+  { key: 'module_unlocked', label: 'Módulo desbloqueado' },
+  { key: 'course_completed', label: 'Curso completado' },
+];
+
+const defaultNotificationPreferences = (): NotificationPreferences => (
+  notificationPreferenceDefinitions.reduce((acc, item) => {
+    acc[item.key] = true;
+    return acc;
+  }, {} as NotificationPreferences)
+);
+
 export function UserEditDialog({ user, allRoles, isOpen, onClose, onUserUpdated }: UserEditDialogProps) {
   const { toast } = useToast();
   const [isSaving, setIsSaving] = useState(false);
+  const [preferences, setPreferences] = useState<NotificationPreferences | null>(null);
+  const [isSavingPreferences, setIsSavingPreferences] = useState(false);
 
   const {
     control,
@@ -66,6 +89,9 @@ export function UserEditDialog({ user, allRoles, isOpen, onClose, onUserUpdated 
             roles: user.roles,
             status: user.status,
         });
+        apiGet<NotificationPreferences>(`/api/users/${user.id}/notification-preferences`)
+          .then((response) => setPreferences(response))
+          .catch(() => setPreferences(null));
     }
   }, [user, isOpen, reset]);
 
@@ -95,6 +121,48 @@ export function UserEditDialog({ user, allRoles, isOpen, onClose, onUserUpdated 
       });
     } finally {
       setIsSaving(false);
+    }
+  };
+
+  const handlePreferenceToggle = async (key: NotificationPreferenceType, enabled: boolean) => {
+    if (!user) return;
+    setIsSavingPreferences(true);
+    try {
+      await apiPatch<{ success: boolean }>(`/api/users/${user.id}/notification-preferences`, { [key]: enabled });
+      setPreferences((current) => {
+        if (!current) return current;
+        return { ...current, [key]: enabled };
+      });
+    } catch (error: any) {
+      toast({
+        title: 'Error al actualizar',
+        description: error.message,
+        variant: 'destructive',
+      });
+    } finally {
+      setIsSavingPreferences(false);
+    }
+  };
+
+  const handleResetPreferences = async () => {
+    if (!user) return;
+    setIsSavingPreferences(true);
+    try {
+      const defaults = defaultNotificationPreferences();
+      await apiPatch<{ success: boolean }>(`/api/users/${user.id}/notification-preferences`, defaults);
+      setPreferences(defaults);
+      toast({
+        title: 'Preferencias restablecidas',
+        description: 'Las notificaciones del usuario fueron restablecidas.',
+      });
+    } catch (error: any) {
+      toast({
+        title: 'Error al restablecer',
+        description: error.message,
+        variant: 'destructive',
+      });
+    } finally {
+      setIsSavingPreferences(false);
     }
   };
 
@@ -182,6 +250,27 @@ export function UserEditDialog({ user, allRoles, isOpen, onClose, onUserUpdated 
                 )}
             />
             {errors.roles && <p className="text-destructive text-sm">{errors.roles.message}</p>}
+          </div>
+          <Separator />
+          <div className="space-y-4">
+            <div className="flex items-center justify-between gap-2">
+              <Label className="font-semibold">Notificaciones del Usuario</Label>
+              <Button type="button" variant="outline" size="sm" onClick={handleResetPreferences} disabled={isSavingPreferences}>
+                Restablecer
+              </Button>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              {notificationPreferenceDefinitions.map((item) => (
+                <div key={item.key} className="flex items-center justify-between rounded-2xl border p-3">
+                  <p className="text-sm">{item.label}</p>
+                  <Switch
+                    checked={preferences?.[item.key] ?? true}
+                    disabled={isSavingPreferences}
+                    onCheckedChange={(enabled) => handlePreferenceToggle(item.key, enabled)}
+                  />
+                </div>
+              ))}
+            </div>
           </div>
           <DialogFooter>
             <DialogClose asChild>

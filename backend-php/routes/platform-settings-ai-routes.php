@@ -290,9 +290,52 @@ function extractJsonObjectFromText(string $text): ?array {
     return is_array($decodedSlice) ? $decodedSlice : null;
 }
 
-function callOpenAiJsonResponse(string $model, string $instructions, string $prompt, int $maxOutputTokens = 8192): array {
+function extractOpenAiTokenUsage(array $response): array {
+    $usage = isset($response['usage']) && is_array($response['usage']) ? $response['usage'] : [];
+    $inputTokens = 0;
+    $outputTokens = 0;
+    if (isset($usage['input_tokens'])) {
+        $inputTokens = (int)$usage['input_tokens'];
+    } elseif (isset($usage['prompt_tokens'])) {
+        $inputTokens = (int)$usage['prompt_tokens'];
+    }
+    if (isset($usage['output_tokens'])) {
+        $outputTokens = (int)$usage['output_tokens'];
+    } elseif (isset($usage['completion_tokens'])) {
+        $outputTokens = (int)$usage['completion_tokens'];
+    }
+    if ($outputTokens <= 0 && isset($usage['total_tokens'])) {
+        $outputTokens = max(0, (int)$usage['total_tokens'] - $inputTokens);
+    }
+    return [
+        'inputTokens' => max(0, $inputTokens),
+        'outputTokens' => max(0, $outputTokens),
+    ];
+}
+
+function trackOpenAiUsageAttempt(array $trackingContext, string $model, string $status, int $inputTokens = 0, int $outputTokens = 0, array $extraMetadata = []): void {
+    $eventType = trim((string)($trackingContext['eventType'] ?? ''));
+    if ($eventType === '') {
+        return;
+    }
+    $baseMetadata = isset($trackingContext['metadata']) && is_array($trackingContext['metadata']) ? $trackingContext['metadata'] : [];
+    $metadata = array_merge($baseMetadata, $extraMetadata);
+    logAiUsageEvent([
+        'courseId' => max(0, (int)($trackingContext['courseId'] ?? 0)),
+        'moduleId' => max(0, (int)($trackingContext['moduleId'] ?? 0)),
+        'eventType' => $eventType,
+        'status' => $status,
+        'modelId' => $model,
+        'inputTokens' => max(0, $inputTokens),
+        'outputTokens' => max(0, $outputTokens),
+        'metadata' => $metadata,
+    ]);
+}
+
+function callOpenAiJsonResponse(string $model, string $instructions, string $prompt, int $maxOutputTokens = 8192, array $trackingContext = []): array {
     $apiKey = envValue('OPENAI_API_KEY', null);
     if ($apiKey === null || trim($apiKey) === '') {
+        trackOpenAiUsageAttempt($trackingContext, $model, 'failed', 0, 0, ['reason' => 'missing_api_key']);
         throw new RuntimeException('OPENAI_API_KEY no está configurada en el backend.');
     }
     $payload = [
@@ -324,14 +367,25 @@ function callOpenAiJsonResponse(string $model, string $instructions, string $pro
     if ($raw === false) {
         $error = error_get_last();
         $message = is_array($error) && isset($error['message']) ? (string)$error['message'] : '';
+        trackOpenAiUsageAttempt($trackingContext, $model, 'failed', 0, 0, ['reason' => 'request_failed', 'message' => $message]);
         throw new RuntimeException('No se pudo completar la solicitud con IA.' . ($message !== '' ? ' ' . $message : ''));
     }
     $decoded = json_decode($raw, true);
     if (!is_array($decoded)) {
+        trackOpenAiUsageAttempt($trackingContext, $model, 'failed', 0, 0, ['reason' => 'invalid_response']);
         throw new RuntimeException('La IA devolvió una respuesta inválida.');
     }
+    $tokenUsage = extractOpenAiTokenUsage($decoded);
     $errorMessage = isset($decoded['error']['message']) ? trim((string)$decoded['error']['message']) : '';
     if ($errorMessage !== '') {
+        trackOpenAiUsageAttempt(
+            $trackingContext,
+            $model,
+            'failed',
+            $tokenUsage['inputTokens'],
+            $tokenUsage['outputTokens'],
+            ['reason' => 'openai_error', 'message' => $errorMessage]
+        );
         throw new RuntimeException('OpenAI devolvió un error: ' . $errorMessage);
     }
     $outputText = isset($decoded['output_text']) ? trim((string)$decoded['output_text']) : '';
@@ -362,8 +416,17 @@ function callOpenAiJsonResponse(string $model, string $instructions, string $pro
     }
     $parsed = extractJsonObjectFromText($outputText);
     if (!is_array($parsed)) {
+        trackOpenAiUsageAttempt(
+            $trackingContext,
+            $model,
+            'failed',
+            $tokenUsage['inputTokens'],
+            $tokenUsage['outputTokens'],
+            ['reason' => 'invalid_json_output']
+        );
         throw new RuntimeException('La IA no devolvió JSON válido.');
     }
+    trackOpenAiUsageAttempt($trackingContext, $model, 'success', $tokenUsage['inputTokens'], $tokenUsage['outputTokens']);
     return $parsed;
 }
 
@@ -449,7 +512,7 @@ function fallbackQuestionnaireFromContent(string $content, int $numQuestions, st
     return $questions;
 }
 
-function generateQuestionnaireRobustly(string $model, string $instructions, string $basePrompt, string $content, int $numQuestions, string $difficulty): array {
+function generateQuestionnaireRobustly(string $model, string $instructions, string $basePrompt, string $content, int $numQuestions, string $difficulty, array $trackingContext = []): array {
     $contentVariants = [
         trimQuestionnaireContent($content, 16000),
         trimQuestionnaireContent($content, 10000),
@@ -458,13 +521,21 @@ function generateQuestionnaireRobustly(string $model, string $instructions, stri
     ];
     $contentVariants = array_values(array_unique(array_filter($contentVariants, static fn(string $value): bool => $value !== '')));
     $lastError = null;
+    $attemptNumber = 0;
     foreach ($contentVariants as $variant) {
+        $attemptNumber += 1;
         try {
+            $attemptContext = $trackingContext;
+            $attemptMetadata = isset($attemptContext['metadata']) && is_array($attemptContext['metadata']) ? $attemptContext['metadata'] : [];
+            $attemptMetadata['attempt'] = $attemptNumber;
+            $attemptMetadata['contentLength'] = mb_strlen($variant);
+            $attemptContext['metadata'] = $attemptMetadata;
             $aiResult = callOpenAiJsonResponse(
                 $model,
                 $instructions,
                 $basePrompt . "\nContenido base:\n" . $variant,
-                4500
+                4500,
+                $attemptContext
             );
             $questions = normalizeGeneratedQuestionnaire($aiResult);
             if (count($questions) > 0) {
@@ -544,6 +615,16 @@ function handlePlatformSettingsAiRoutes(string $method, string $path): void {
             'enableYoutubeGeneration' => 'false',
             'minPassingScore' => '70',
             'scoreCalculationMethod' => 'last_attempt',
+            'notifGlobalCourseEnrollment' => 'true',
+            'notifGlobalCourseDueSoon' => 'true',
+            'notifGlobalCourseDueExpired' => 'true',
+            'notifGlobalInactivityReminder' => 'true',
+            'notifGlobalCourseUpdated' => 'true',
+            'notifGlobalCourseStatusChange' => 'true',
+            'notifGlobalCourseDueDateChanged' => 'true',
+            'notifGlobalEvaluationResult' => 'true',
+            'notifGlobalModuleUnlocked' => 'true',
+            'notifGlobalCourseCompleted' => 'true',
         ];
         foreach ($defaults as $key => $value) {
             if (!isset($settings[$key])) {
@@ -649,6 +730,7 @@ function handlePlatformSettingsAiRoutes(string $method, string $path): void {
 
     if ($method === 'POST' && $path === '/api/syllabus/index') {
         $payload = parseBody();
+        $courseId = max(0, (int)($payload['courseId'] ?? 0));
         $sourceFileIds = isset($payload['sourceFileIds']) && is_array($payload['sourceFileIds']) ? $payload['sourceFileIds'] : [];
         $pdfDataUris = isset($payload['pdfDataUris']) && is_array($payload['pdfDataUris']) ? $payload['pdfDataUris'] : [];
         $structuredContent = structuredContentFromSourceFileIds($sourceFileIds);
@@ -695,7 +777,22 @@ function handlePlatformSettingsAiRoutes(string $method, string $path): void {
             $moduleHint . "\n" .
             "structuredContent:\n" .
             json_encode($trimmedStructuredContent, JSON_UNESCAPED_UNICODE);
-        $aiResult = callOpenAiJsonResponse((string)$settings['aiModel'], $instructions, $prompt, 8192);
+        $aiResult = callOpenAiJsonResponse(
+            (string)$settings['aiModel'],
+            $instructions,
+            $prompt,
+            8192,
+            [
+                'eventType' => 'syllabus_index_generation',
+                'courseId' => $courseId,
+                'metadata' => [
+                    'sourceFileCount' => count($sourceFileIds),
+                    'pdfDataUriCount' => count($pdfDataUris),
+                    'targetModules' => $targetModules,
+                    'includeFundamentals' => $includeFundamentals,
+                ],
+            ]
+        );
         $rawTitles = isset($aiResult['moduleTitles']) && is_array($aiResult['moduleTitles']) ? $aiResult['moduleTitles'] : [];
         $moduleTitles = [];
         foreach ($rawTitles as $title) {
@@ -776,6 +873,7 @@ function handlePlatformSettingsAiRoutes(string $method, string $path): void {
 
     if ($method === 'POST' && $path === '/api/syllabus/module') {
         $payload = parseBody();
+        $courseId = max(0, (int)($payload['courseId'] ?? 0));
         $moduleTitle = trim((string)($payload['moduleTitle'] ?? ''));
         if ($moduleTitle === '') {
             jsonResponse(400, ['error' => 'moduleTitle is required.']);
@@ -814,7 +912,21 @@ function handlePlatformSettingsAiRoutes(string $method, string $path): void {
             "Nivel de dificultad del curso: {$difficulty}\n\n" .
             "Contenido fuente clasificado:\n" .
             json_encode($selected, JSON_UNESCAPED_UNICODE);
-        $aiResult = callOpenAiJsonResponse((string)$settings['aiModel'], $instructions, $prompt, 5000);
+        $aiResult = callOpenAiJsonResponse(
+            (string)$settings['aiModel'],
+            $instructions,
+            $prompt,
+            5000,
+            [
+                'eventType' => 'syllabus_module_generation',
+                'courseId' => $courseId,
+                'metadata' => [
+                    'moduleTitle' => $moduleTitle,
+                    'selectedChunks' => count($selected),
+                    'difficulty' => $difficulty,
+                ],
+            ]
+        );
         $intro = isset($aiResult['introduction']) ? trim((string)$aiResult['introduction']) : '';
         $rawSyllabus = isset($aiResult['syllabus']) && is_array($aiResult['syllabus']) ? $aiResult['syllabus'] : [];
         $syllabus = [];
@@ -842,6 +954,8 @@ function handlePlatformSettingsAiRoutes(string $method, string $path): void {
 
     if ($method === 'POST' && $path === '/api/questionnaire/generate') {
         $payload = parseBody();
+        $courseId = max(0, (int)($payload['courseId'] ?? 0));
+        $moduleId = max(0, (int)($payload['moduleId'] ?? 0));
         $content = trim((string)($payload['content'] ?? ''));
         if ($content === '') {
             jsonResponse(400, ['error' => 'content is required.']);
@@ -863,7 +977,23 @@ function handlePlatformSettingsAiRoutes(string $method, string $path): void {
         $prompt =
             "Genera {$numQuestions} preguntas de opción múltiple.\n" .
             "Nivel de dificultad: {$difficulty}.";
-        $questions = generateQuestionnaireRobustly((string)$settings['aiModel'], $instructions, $prompt, $content, $numQuestions, $difficulty);
+        $questions = generateQuestionnaireRobustly(
+            (string)$settings['aiModel'],
+            $instructions,
+            $prompt,
+            $content,
+            $numQuestions,
+            $difficulty,
+            [
+                'eventType' => 'questionnaire_generation',
+                'courseId' => $courseId,
+                'moduleId' => $moduleId,
+                'metadata' => [
+                    'requestedQuestions' => $numQuestions,
+                    'difficulty' => $difficulty,
+                ],
+            ]
+        );
         if (count($questions) === 0) {
             jsonResponse(400, ['error' => 'No se pudo generar el cuestionario.']);
         }

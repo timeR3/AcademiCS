@@ -2,12 +2,13 @@
 import { useState, useEffect } from 'react';
 import { Card, CardHeader, CardTitle, CardContent, CardDescription, CardFooter } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Loader2, Save, Trophy, Calculator, Settings, FolderKanban, Award, Bot, Cpu, PartyPopper } from 'lucide-react';
+import { Loader2, Save, Trophy, Calculator, Settings, FolderKanban, Award, Bot, Cpu, PartyPopper, Bell } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import type { AppSettings } from '@/types';
 import { apiGet, apiPatch } from '@/lib/api-client';
 import { Input } from '../ui/input';
 import { Label } from '../ui/label';
+import { Switch } from '../ui/switch';
 import { RadioGroup, RadioGroupItem } from '../ui/radio-group';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { AIConfigView } from './AIConfigView';
@@ -15,6 +16,26 @@ import { BadgesView } from './BadgesView';
 import { CategoriesView } from './CategoriesView';
 import { AIModelsView } from './AIModelsView';
 import { SeasonalDecorationsView } from './SeasonalDecorationsView';
+
+const notificationSettingDefinitions = [
+    { key: 'notifGlobalCourseEnrollment', label: 'Inscripción a curso', description: 'Notifica cuando un estudiante es inscrito a un curso.' },
+    { key: 'notifGlobalCourseDueSoon', label: 'Vencimiento próximo', description: 'Notifica cuando un curso está por vencer en 24 horas.' },
+    { key: 'notifGlobalCourseDueExpired', label: 'Curso vencido', description: 'Notifica cuando un curso ya venció.' },
+    { key: 'notifGlobalInactivityReminder', label: 'Recordatorio de inactividad', description: 'Notifica cuando hay varios días sin actividad.' },
+    { key: 'notifGlobalCourseUpdated', label: 'Actualización de curso', description: 'Notifica cuando un curso cambia de título o contenido principal.' },
+    { key: 'notifGlobalCourseStatusChange', label: 'Cambio de estado del curso', description: 'Notifica cuando un curso se suspende, reactiva o archiva.' },
+    { key: 'notifGlobalCourseDueDateChanged', label: 'Cambio de fecha límite', description: 'Notifica cuando se modifica la fecha límite del curso.' },
+    { key: 'notifGlobalEvaluationResult', label: 'Resultado de evaluación', description: 'Notifica al estudiante su resultado al enviar evaluación.' },
+    { key: 'notifGlobalModuleUnlocked', label: 'Módulo desbloqueado', description: 'Notifica cuando se desbloquea el siguiente módulo.' },
+    { key: 'notifGlobalCourseCompleted', label: 'Curso completado', description: 'Notifica cuando se completa un curso y se calcula nota final.' },
+] as const;
+
+const defaultNotificationSettings = (): Record<string, boolean> => (
+    notificationSettingDefinitions.reduce((acc, definition) => {
+        acc[definition.key] = true;
+        return acc;
+    }, {} as Record<string, boolean>)
+);
 
 export function SettingsView() {
     const [loadingSettings, setLoadingSettings] = useState(true);
@@ -27,6 +48,7 @@ export function SettingsView() {
     
     // State to track initial settings to check for changes
     const [initialSettings, setInitialSettings] = useState<Partial<AppSettings>>({});
+    const [notificationSettings, setNotificationSettings] = useState<Record<string, boolean>>({});
 
     const loadAllSettings = async () => {
         setLoadingSettings(true);
@@ -35,6 +57,11 @@ export function SettingsView() {
             
             setMinPassingScore(settings.minPassingScore || '70');
             setScoreCalculationMethod(settings.scoreCalculationMethod || 'last_attempt');
+            const loadedNotificationSettings: Record<string, boolean> = {};
+            for (const definition of notificationSettingDefinitions) {
+                loadedNotificationSettings[definition.key] = settings[definition.key] !== 'false';
+            }
+            setNotificationSettings(loadedNotificationSettings);
 
             // Set initial states for comparison on save
             setInitialSettings({
@@ -101,6 +128,56 @@ export function SettingsView() {
         }
     };
 
+    const handleSaveNotificationSettings = async () => {
+        setIsSaving(true);
+        try {
+            const payload: Partial<AppSettings> = {};
+            for (const definition of notificationSettingDefinitions) {
+                payload[definition.key] = notificationSettings[definition.key] ? 'true' : 'false';
+            }
+            await apiPatch<{ success: boolean }>('/api/app-settings', payload);
+            toast({
+                title: "Configuración Guardada",
+                description: "Las notificaciones globales han sido actualizadas.",
+            });
+            loadAllSettings();
+        } catch (error: any) {
+            toast({
+                title: "Error al Guardar",
+                description: `No se pudo guardar la configuración: ${error.message}`,
+                variant: "destructive"
+            });
+        } finally {
+            setIsSaving(false);
+        }
+    };
+
+    const handleResetNotificationSettings = async () => {
+        setIsSaving(true);
+        try {
+            const defaults = defaultNotificationSettings();
+            const payload: Partial<AppSettings> = {};
+            for (const definition of notificationSettingDefinitions) {
+                payload[definition.key] = defaults[definition.key] ? 'true' : 'false';
+            }
+            await apiPatch<{ success: boolean }>('/api/app-settings', payload);
+            setNotificationSettings(defaults);
+            toast({
+                title: "Configuración Restablecida",
+                description: "Las notificaciones globales volvieron a los valores predeterminados.",
+            });
+            loadAllSettings();
+        } catch (error: any) {
+            toast({
+                title: "Error al Restablecer",
+                description: `No se pudo restablecer la configuración: ${error.message}`,
+                variant: "destructive"
+            });
+        } finally {
+            setIsSaving(false);
+        }
+    };
+
     return (
         <div className="w-full space-y-6 min-w-0">
             <div className="flex items-center gap-3 sm:gap-4 min-w-0">
@@ -112,8 +189,9 @@ export function SettingsView() {
             </div>
 
             <Tabs defaultValue="general" className="w-full min-w-0">
-                <TabsList className="grid h-auto w-full grid-cols-2 gap-1 lg:grid-cols-3 2xl:grid-cols-6">
+                <TabsList className="grid h-auto w-full grid-cols-2 gap-1 lg:grid-cols-4 2xl:grid-cols-7">
                     <TabsTrigger value="general" className="px-2 py-2 text-xs sm:text-sm"><Settings className="mr-1 h-4 w-4 sm:mr-2"/>General</TabsTrigger>
+                    <TabsTrigger value="notifications" className="px-2 py-2 text-xs sm:text-sm"><Bell className="mr-1 h-4 w-4 sm:mr-2"/>Notificaciones</TabsTrigger>
                     <TabsTrigger value="categories" className="px-2 py-2 text-xs sm:text-sm"><FolderKanban className="mr-1 h-4 w-4 sm:mr-2"/>Categorías</TabsTrigger>
                     <TabsTrigger value="badges" className="px-2 py-2 text-xs sm:text-sm"><Award className="mr-1 h-4 w-4 sm:mr-2"/>Insignias</TabsTrigger>
                     <TabsTrigger value="decorations" className="px-2 py-2 text-xs sm:text-sm"><PartyPopper className="mr-1 h-4 w-4 sm:mr-2"/>Tema</TabsTrigger>
@@ -179,6 +257,43 @@ export function SettingsView() {
                             <Button onClick={handleSaveChanges} disabled={loadingSettings || isSaving} className="w-full sm:w-auto">
                                 {isSaving ? <Loader2 className="mr-2 animate-spin" /> : <Save className="mr-2" />}
                                 Guardar Cambios Generales
+                            </Button>
+                        </CardFooter>
+                    </Card>
+                </TabsContent>
+                <TabsContent value="notifications" className="mt-6 w-full">
+                    <Card className="premium-surface w-full">
+                        <CardHeader>
+                            <CardTitle>Notificaciones Globales</CardTitle>
+                            <CardDescription>Controla qué tipos de notificaciones estarán habilitadas para toda la plataforma.</CardDescription>
+                        </CardHeader>
+                        <CardContent className="space-y-4">
+                            {loadingSettings ? <p>Cargando...</p> : (
+                                <div className="grid gap-4 md:grid-cols-2">
+                                    {notificationSettingDefinitions.map((definition) => (
+                                        <div key={definition.key} className="flex items-start gap-3 rounded-2xl border p-4 sm:items-center">
+                                            <Switch
+                                                id={definition.key}
+                                                checked={notificationSettings[definition.key] ?? true}
+                                                onCheckedChange={(checked) => setNotificationSettings((current) => ({ ...current, [definition.key]: checked }))}
+                                                disabled={isSaving}
+                                            />
+                                            <div className="space-y-1">
+                                                <Label htmlFor={definition.key} className="text-base font-medium">{definition.label}</Label>
+                                                <p className="text-xs text-muted-foreground">{definition.description}</p>
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
+                        </CardContent>
+                        <CardFooter className="flex flex-col gap-2 sm:flex-row sm:justify-end">
+                            <Button onClick={handleResetNotificationSettings} variant="outline" disabled={loadingSettings || isSaving} className="w-full sm:w-auto">
+                                Restablecer Predeterminados
+                            </Button>
+                            <Button onClick={handleSaveNotificationSettings} disabled={loadingSettings || isSaving} className="w-full sm:w-auto">
+                                {isSaving ? <Loader2 className="mr-2 animate-spin" /> : <Save className="mr-2" />}
+                                Guardar Notificaciones Globales
                             </Button>
                         </CardFooter>
                     </Card>

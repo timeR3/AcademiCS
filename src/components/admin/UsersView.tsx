@@ -8,11 +8,12 @@ import { Badge } from '../ui/badge';
 import { cn } from '@/lib/utils';
 import { Avatar, AvatarFallback, AvatarImage } from '../ui/avatar';
 import { ScrollArea } from '../ui/scroll-area';
-import { Button } from '../ui/button';
 import { Search } from 'lucide-react';
 import { useCourse } from '@/context/CourseContext';
 import { UserEditDialog } from './UserEditDialog';
 import { apiGet } from '@/lib/api-client';
+import { format, isValid, parseISO } from 'date-fns';
+import { es } from 'date-fns/locale';
 
 const roleVariant: Record<UserRole, 'default' | 'secondary' | 'destructive'> = {
     admin: 'destructive',
@@ -72,6 +73,17 @@ export function UsersView() {
         refreshCourses(); // This refreshes all data, including users
     }
 
+    const formatUserDate = (value?: string | null) => {
+        if (!value) {
+            return '—';
+        }
+        const parsed = parseISO(value);
+        if (!isValid(parsed)) {
+            return '—';
+        }
+        return format(parsed, 'dd/MM/yyyy HH:mm', { locale: es });
+    };
+
     return (
         <>
             <Card className="premium-surface h-full flex flex-col">
@@ -94,18 +106,20 @@ export function UsersView() {
                     <div className="flex-grow overflow-hidden rounded-xl border">
                         <ScrollArea className="h-full">
                             <div className="overflow-x-auto">
-                            <Table className="min-w-[560px]">
+                            <Table className="min-w-[980px]">
                                 <TableHeader>
                                     <TableRow>
                                         <TableHead>Nombre</TableHead>
                                         <TableHead className="hidden md:table-cell">Email</TableHead>
                                         <TableHead className="hidden sm:table-cell">Roles</TableHead>
+                                        <TableHead className="hidden lg:table-cell">Fecha de registro</TableHead>
+                                        <TableHead className="hidden xl:table-cell">Último ingreso/actividad</TableHead>
                                         <TableHead className="text-center">Estado</TableHead>
                                     </TableRow>
                                 </TableHeader>
                                 <TableBody>
                                     {loading ? (
-                                        <TableRow><TableCell colSpan={4} className="text-center h-24">Cargando usuarios...</TableCell></TableRow>
+                                        <TableRow><TableCell colSpan={6} className="text-center h-24">Cargando usuarios...</TableCell></TableRow>
                                     ) : filteredUsers.length > 0 ? (
                                         filteredUsers.map(user => (
                                             <TableRow key={user.id} onClick={() => handleOpenEditModal(user)} className="cursor-pointer">
@@ -129,6 +143,8 @@ export function UsersView() {
                                                         ))}
                                                     </div>
                                                 </TableCell>
+                                                <TableCell className="hidden lg:table-cell text-sm text-muted-foreground">{formatUserDate(user.createdAt)}</TableCell>
+                                                <TableCell className="hidden xl:table-cell text-sm text-muted-foreground">{formatUserDate(user.lastLoginAt ?? user.lastActivityAt)}</TableCell>
                                                 <TableCell className="text-center">
                                                     <Badge variant={user.status === 'active' ? 'secondary' : 'outline'} className={cn(user.status === 'active' ? "bg-secondary/20 text-secondary-foreground border-secondary/40" : "bg-muted text-muted-foreground border-border", "capitalize")}>
                                                         {user.status === 'active' ? 'Activo' : 'Inactivo'}
@@ -137,7 +153,7 @@ export function UsersView() {
                                             </TableRow>
                                         ))
                                     ) : (
-                                        <TableRow><TableCell colSpan={4} className="text-center h-24">No se encontraron usuarios.</TableCell></TableRow>
+                                        <TableRow><TableCell colSpan={6} className="text-center h-24">No se encontraron usuarios.</TableCell></TableRow>
                                     )}
                                 </TableBody>
                             </Table>

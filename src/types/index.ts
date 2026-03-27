@@ -58,6 +58,9 @@ export interface User {
   email: string;
   roles: UserRole[];
   status: 'active' | 'inactive';
+  createdAt?: string | null;
+  lastLoginAt?: string | null;
+  lastActivityAt?: string | null;
 }
 
 export type CourseStatus = 'active' | 'archived' | 'suspended';
@@ -128,6 +131,19 @@ export interface StudentEnrollment {
   dueDate?: Date | null;
 }
 
+export interface AiUsageMetrics {
+    inputTokens: number;
+    outputTokens: number;
+    totalTokens: number;
+    estimatedCostUsd: number;
+    syllabusIndexAttempts: number;
+    syllabusModuleAttempts: number;
+    questionnaireAttempts: number;
+    generationAttempts: number;
+    fileUploadAttempts: number;
+    fileUploadSuccesses: number;
+}
+
 export interface Course {
     id: string; // Will be a number from the DB, but string is safer for components
     title: string;
@@ -146,6 +162,7 @@ export interface Course {
     includeFundamentals?: boolean;
     finalScore?: number; // Student's final score on this course
     dueDate?: string; // For student view, the specific due date for them
+    aiMetrics?: AiUsageMetrics;
 }
 
 export interface Teacher extends User {
@@ -160,6 +177,16 @@ export interface AppSettings {
     enableYoutubeGeneration?: string;
     minPassingScore?: string;
     scoreCalculationMethod?: 'last_attempt' | 'all_attempts';
+    notifGlobalCourseEnrollment?: string;
+    notifGlobalCourseDueSoon?: string;
+    notifGlobalCourseDueExpired?: string;
+    notifGlobalInactivityReminder?: string;
+    notifGlobalCourseUpdated?: string;
+    notifGlobalCourseStatusChange?: string;
+    notifGlobalCourseDueDateChanged?: string;
+    notifGlobalEvaluationResult?: string;
+    notifGlobalModuleUnlocked?: string;
+    notifGlobalCourseCompleted?: string;
     seasonalDecorationsEnabled?: 'true' | 'false';
     seasonalDecorationsTheme?: SeasonalDecorationTheme;
     seasonalDecorationsStartDate?: string;
@@ -192,6 +219,20 @@ export interface Notification {
     isRead: boolean;
     createdAt: string;
 }
+
+export type NotificationPreferenceType =
+    | 'course_enrollment'
+    | 'course_due_soon'
+    | 'course_due_expired'
+    | 'inactivity_reminder'
+    | 'course_updated'
+    | 'course_status_change'
+    | 'course_due_date_changed'
+    | 'evaluation_result'
+    | 'module_unlocked'
+    | 'course_completed';
+
+export type NotificationPreferences = Record<NotificationPreferenceType, boolean>;
 
 export interface CourseAnalyticsData {
     totalEnrolled: number;
