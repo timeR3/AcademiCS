@@ -1,5 +1,5 @@
 'use client';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { Card, CardHeader, CardTitle, CardContent, CardDescription, CardFooter } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Award, PlusCircle, Pencil, Trash2, Loader2 } from 'lucide-react';
@@ -33,7 +33,7 @@ export function BadgesView() {
     const [selectedBadge, setSelectedBadge] = useState<Partial<Badge> | null>(null);
     const [badgeToDelete, setBadgeToDelete] = useState<Badge | null>(null);
 
-    const loadBadges = async () => {
+    const loadBadges = useCallback(async () => {
         setIsLoading(true);
         try {
             const fetchedBadges = await apiGet<Badge[]>('/api/badges');
@@ -43,11 +43,11 @@ export function BadgesView() {
         } finally {
             setIsLoading(false);
         }
-    };
+    }, [toast]);
 
     useEffect(() => {
         loadBadges();
-    }, []);
+    }, [loadBadges]);
     
     const handleOpenDialog = (badge: Partial<Badge> | null = null) => {
         setSelectedBadge(badge);

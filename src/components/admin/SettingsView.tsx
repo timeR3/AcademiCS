@@ -1,5 +1,5 @@
 'use client';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { Card, CardHeader, CardTitle, CardContent, CardDescription, CardFooter } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Loader2, Save, Trophy, Calculator, Settings, FolderKanban, Award, Bot, Cpu, PartyPopper, Bell } from 'lucide-react';
@@ -50,7 +50,7 @@ export function SettingsView() {
     const [initialSettings, setInitialSettings] = useState<Partial<AppSettings>>({});
     const [notificationSettings, setNotificationSettings] = useState<Record<string, boolean>>({});
 
-    const loadAllSettings = async () => {
+    const loadAllSettings = useCallback(async () => {
         setLoadingSettings(true);
         try {
             const settings = await apiGet<AppSettings>('/api/app-settings');
@@ -81,11 +81,11 @@ export function SettingsView() {
         } finally {
              setLoadingSettings(false);
         }
-    };
+    }, [toast]);
 
     useEffect(() => {
         loadAllSettings();
-    }, []);
+    }, [loadAllSettings]);
     
     const handleSaveChanges = async () => {
         setIsSaving(true);

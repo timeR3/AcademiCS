@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Button } from '@/components/ui/button';
@@ -34,7 +34,7 @@ export function AIModelsView() {
     const [selectedModel, setSelectedModel] = useState<Partial<AiModel> | null>(null);
     const [modelToDelete, setModelToDelete] = useState<AiModel | null>(null);
 
-    const loadModels = async () => {
+    const loadModels = useCallback(async () => {
         setIsLoading(true);
         try {
             const fetchedModels = await apiGet<AiModel[]>('/api/ai-models');
@@ -44,11 +44,11 @@ export function AIModelsView() {
         } finally {
             setIsLoading(false);
         }
-    };
+    }, [toast]);
 
     useEffect(() => {
         loadModels();
-    }, []);
+    }, [loadModels]);
 
     const handleOpenDialog = (model: Partial<AiModel> | null = null) => {
         setSelectedModel(model);

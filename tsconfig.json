@@ -34,13 +34,6 @@
   "exclude": [
     "node_modules",
     "dist",
-    "src/ai",
-    "src/app/actions.ts",
-    "src/app/layout.tsx",
-    "src/app/page.tsx",
-    "src/app/api",
-    "src/server",
-    "src/lib/db.ts",
-    "src/lib/email.ts"
+    "src/ai"
   ]
 }

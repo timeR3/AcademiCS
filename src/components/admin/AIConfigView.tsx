@@ -1,5 +1,5 @@
 'use client';
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import { Card, CardHeader, CardTitle, CardContent, CardDescription, CardFooter } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
@@ -49,7 +49,7 @@ export function AIConfigView() {
     }, [aiModel, availableAiModels]);
 
 
-    const loadAllSettings = async () => {
+    const loadAllSettings = useCallback(async () => {
         setLoadingSettings(true);
         try {
             const [settings, history, models] = await Promise.all([
@@ -84,7 +84,7 @@ export function AIConfigView() {
         } finally {
              setLoadingSettings(false);
         }
-    };
+    }, [toast]);
 
 
     useEffect(() => {
@@ -102,7 +102,7 @@ export function AIConfigView() {
         }
         checkStatus();
         loadAllSettings();
-    }, []);
+    }, [loadAllSettings]);
     
      const handleSaveGeneralSettings = async () => {
         setSavingStates(s => ({ ...s, general: true }));

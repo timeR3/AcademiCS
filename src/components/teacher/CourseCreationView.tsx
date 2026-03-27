@@ -160,7 +160,7 @@ export function CourseCreationView({ onCourseSaved, isEditing = false, isAdminVi
     };
 
     processNextModule();
-  }, [generatedLearningPath, isGenerating, allStructuredContent, toast, activeLevelId, classificationMap, courseDifficulty]);
+  }, [generatedLearningPath, isGenerating, allStructuredContent, toast, activeLevelId, classificationMap, courseDifficulty, courseId]);
 
   
   const handleSyllabusIndexGenerated = useCallback((output: CreateSyllabusOutput) => {

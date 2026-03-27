@@ -7,7 +7,7 @@ import { LogOut, ShieldCheck, Bell, Menu, School, UserCircle, CheckCircle2 } fro
 import type { UserRole, Notification, User } from '@/types';
 import { SidebarTrigger, useSidebar } from '../ui/sidebar';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from '../ui/dropdown-menu';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { apiGet, apiPatch } from '@/lib/api-client';
 import { Badge } from '../ui/badge';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '../ui/dialog';
@@ -50,7 +50,7 @@ function NotificationBell() {
         return match ? match[1] : null;
     };
 
-    const loadNotifications = async () => {
+    const loadNotifications = useCallback(async () => {
         if (!user) return;
         try {
             const fetchedNotifications = await apiGet<Notification[]>(`/api/users/${user.id}/notifications`);
@@ -59,13 +59,13 @@ function NotificationBell() {
         } catch (error) {
             console.error("Failed to fetch notifications", error);
         }
-    };
+    }, [user]);
 
     useEffect(() => {
         loadNotifications();
         const interval = setInterval(loadNotifications, 60000);
         return () => clearInterval(interval);
-    }, [user]);
+    }, [loadNotifications]);
 
     const handleNotificationClick = async (notification: Notification) => {
         setSelectedNotification(notification);

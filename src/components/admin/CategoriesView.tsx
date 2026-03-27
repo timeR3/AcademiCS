@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Button } from '@/components/ui/button';
@@ -35,7 +35,7 @@ export function CategoriesView() {
     const [editingCategory, setEditingCategory] = useState<CourseCategory | null>(null);
     const [editingName, setEditingName] = useState('');
 
-    const loadCategories = async () => {
+    const loadCategories = useCallback(async () => {
         setIsLoading(true);
         try {
             const fetchedCategories = await apiGet<CourseCategory[]>('/api/categories');
@@ -45,11 +45,11 @@ export function CategoriesView() {
         } finally {
             setIsLoading(false);
         }
-    };
+    }, [toast]);
 
     useEffect(() => {
         loadCategories();
-    }, []);
+    }, [loadCategories]);
 
     const handleCreateCategory = async () => {
         if (!newCategoryName.trim()) {

@@ -46,7 +46,7 @@ export function EvaluationView({ level, courseId, onFinish, onBack }: Evaluation
     }
     const shuffled = shuffleArray([...questionBank]);
     return shuffled.slice(0, level.questionsToDisplay || shuffled.length);
-  }, [level.id, level.questionnaire, level.questionsToDisplay]); // Use level.id to re-shuffle for a new evaluation
+  }, [level.questionnaire, level.questionsToDisplay]);
 
 
   const handleAnswerChange = (value: string) => {

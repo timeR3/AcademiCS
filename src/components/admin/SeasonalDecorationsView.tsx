@@ -1,5 +1,5 @@
 'use client';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { Card, CardHeader, CardTitle, CardContent, CardDescription, CardFooter } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Loader2, Save, PartyPopper, Calendar as CalendarIcon, Snowflake } from 'lucide-react';
@@ -30,7 +30,7 @@ export function SeasonalDecorationsView() {
     // State to track initial settings to check for changes
     const [initialSettings, setInitialSettings] = useState<Partial<AppSettings>>({});
     
-    const loadAllSettings = async () => {
+    const loadAllSettings = useCallback(async () => {
         setLoadingSettings(true);
         try {
             const settings = await apiGet<AppSettings>('/api/app-settings');
@@ -56,11 +56,11 @@ export function SeasonalDecorationsView() {
         } finally {
              setLoadingSettings(false);
         }
-    };
+    }, [toast]);
     
     useEffect(() => {
         loadAllSettings();
-    }, []);
+    }, [loadAllSettings]);
 
     const handleSaveChanges = async () => {
         setIsSaving(true);

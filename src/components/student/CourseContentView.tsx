@@ -86,7 +86,7 @@ export function CourseContentView({ course, onStartEvaluation, onBackToDashboard
         // If it is the last section, the next is the evaluation
         return { type: 'evaluation' as const, level: activeLevel };
         
-    }, [activeLevel, activeSection, course.levels, onStartEvaluation, isCourseCompleted]);
+    }, [activeLevel, activeSection, course.levels, isCourseCompleted]);
 
     const handleNextClick = () => {
         if (!nextNavigation) return;

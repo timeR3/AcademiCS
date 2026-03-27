@@ -143,11 +143,11 @@ export default function StudentDashboard() {
     }
   }, [loadDetailedCourse]);
   
-  const handleBackToDashboard = () => {
+  const handleBackToDashboard = useCallback(() => {
     refreshCourses();
     setActiveCourseId(null);
     setStudentView('dashboard');
-  }
+  }, [refreshCourses, setActiveCourseId, setStudentView]);
 
   const startEvaluation = useCallback((level: CourseLevel) => {
     setCurrentLevel(level);

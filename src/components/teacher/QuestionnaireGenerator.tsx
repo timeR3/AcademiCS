@@ -40,14 +40,12 @@ export function QuestionnaireGenerator({ level, isLoading, onQuestionnaireGenera
 
 
   useEffect(() => {
-    // Sync with parent component's state for this level
     setGeneratedQuestions(level.questionnaire || []);
     setNumQuestionsToDisplay(level.questionsToDisplay || 10);
-    // Open the first question for editing if it exists and we're not already editing
-    if ((level.questionnaire || []).length > 0 && editingQuestionIndex === null) {
-      setEditingQuestionIndex(0);
-    } else if ((level.questionnaire || []).length === 0) {
-      setEditingQuestionIndex(null); // Reset editing state when level changes or has no questions
+    if ((level.questionnaire || []).length > 0) {
+      setEditingQuestionIndex((current) => current === null ? 0 : current);
+    } else {
+      setEditingQuestionIndex(null);
     }
   }, [level]);
 
