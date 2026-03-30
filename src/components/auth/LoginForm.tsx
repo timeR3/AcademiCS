@@ -8,6 +8,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { LogIn, Loader2 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
+import { getFriendlyErrorMessage } from '@/lib/api-client';
 
 interface LoginFormProps {
     onToggleView: () => void;
@@ -30,9 +31,13 @@ export function LoginForm({ onToggleView }: LoginFormProps) {
     try {
         await login({ email, password });
         toast({ title: '¡Bienvenido de nuevo!' });
-    } catch(error: any) {
+    } catch(error) {
         console.error(error);
-        toast({ title: "Error al iniciar sesión", description: error.message || 'No se pudo iniciar sesión. Verifica tus credenciales.', variant: "destructive" });
+        toast({
+          title: "No pudimos iniciar sesión",
+          description: getFriendlyErrorMessage(error, 'Revisa tu correo y contraseña e inténtalo nuevamente.'),
+          variant: "destructive"
+        });
     } finally {
         setIsLoading(false);
     }
@@ -41,7 +46,7 @@ export function LoginForm({ onToggleView }: LoginFormProps) {
   return (
     <Card className="w-full max-w-sm shadow-2xl animate-fade-in-up">
       <CardHeader className="text-center">
-        <CardTitle className="text-3xl font-headline">Bienvenido a AcademiCS</CardTitle>
+        <CardTitle className="text-2xl font-headline sm:text-3xl">Bienvenido a AcademiCS</CardTitle>
         <CardDescription>Inicia sesión con tu cuenta</CardDescription>
       </CardHeader>
       <form onSubmit={handleLogin}>
@@ -54,11 +59,11 @@ export function LoginForm({ onToggleView }: LoginFormProps) {
             <Label htmlFor="password">Contraseña</Label>
             <Input id="password" type="password" value={password} onChange={e => setPassword(e.target.value)} />
           </div>
-          <div className="flex justify-between items-center text-sm mt-4 flex-wrap">
-              <Button variant="link" className="p-0 h-auto font-normal text-xs sm:text-sm">
+          <div className="mt-4 flex flex-col items-start gap-2 text-sm sm:flex-row sm:items-center sm:justify-between">
+              <Button type="button" variant="link" className="h-auto p-0 text-left text-xs font-normal whitespace-normal sm:text-sm">
                   Recuperar contraseña
               </Button>
-              <Button variant="link" className="p-0 h-auto font-normal text-xs sm:text-sm" onClick={onToggleView}>
+              <Button type="button" variant="link" className="h-auto p-0 text-left text-xs font-normal whitespace-normal sm:text-sm" onClick={onToggleView}>
                   ¿No tienes cuenta? Regístrate
               </Button>
           </div>

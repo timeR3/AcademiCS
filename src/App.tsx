@@ -1,4 +1,4 @@
-import type { ElementType } from 'react';
+import { useEffect, useRef, useState, type ElementType } from 'react';
 import { Toaster } from '@/components/ui/toaster';
 import { AuthProvider, useAuth } from '@/context/AuthContext';
 import { CourseProvider } from '@/context/CourseContext';
@@ -11,12 +11,13 @@ import AdminDashboard from '@/components/admin/AdminDashboard';
 import { AppHeader } from '@/components/shared/AppHeader';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { UserRole } from '@/types';
-import { GraduationCap, BookOpenCheck, ShieldCheck } from 'lucide-react';
+import { GraduationCap, BookOpenCheck, ShieldCheck, ChevronUp } from 'lucide-react';
 import { SidebarProvider } from '@/components/ui/sidebar';
 import { MainSidebar } from '@/components/shared/MainSidebar';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { SeasonalBanner } from '@/components/shared/SeasonalBanner';
 import { cn } from '@/lib/utils';
+import { Button } from '@/components/ui/button';
 
 const roleConfig: Record<UserRole, { name: string; icon: ElementType }> = {
   teacher: { name: 'Profesor', icon: BookOpenCheck },
@@ -27,6 +28,35 @@ const roleConfig: Record<UserRole, { name: string; icon: ElementType }> = {
 function AppContent() {
   const { isAuthenticated, user } = useAuth();
   const { activeRole, setActiveRole, sortedRoles } = useRole();
+  const pageMainRef = useRef<HTMLElement | null>(null);
+
+  useEffect(() => {
+    const getScrollableCandidates = () =>
+      Array.from(
+        document.querySelectorAll<HTMLElement>(
+          'main, [data-sidebar="content"], [data-radix-scroll-area-viewport], .overflow-auto, .overflow-y-auto, .overflow-scroll, .overflow-y-scroll, [class*="overflow-y-auto"], [class*="overflow-auto"], [class*="overflow-y-scroll"], [class*="overflow-scroll"]'
+        )
+      );
+
+    const updateVisibility = () => {
+      return getScrollableCandidates();
+    };
+    const handleScroll = () => updateVisibility();
+    const container = pageMainRef.current;
+    updateVisibility();
+    window.addEventListener('scroll', handleScroll, { passive: true });
+    window.addEventListener('resize', handleScroll);
+    document.addEventListener('scroll', handleScroll, true);
+    container?.addEventListener('scroll', handleScroll, { passive: true });
+    const intervalId = window.setInterval(updateVisibility, 600);
+    return () => {
+      window.removeEventListener('scroll', handleScroll);
+      window.removeEventListener('resize', handleScroll);
+      document.removeEventListener('scroll', handleScroll, true);
+      container?.removeEventListener('scroll', handleScroll);
+      window.clearInterval(intervalId);
+    };
+  }, [activeRole]);
 
   if (!isAuthenticated || !user) {
     return <AuthView />;
@@ -60,7 +90,7 @@ function AppContent() {
         <div className="flex-1 min-w-0 flex flex-col relative">
           <SeasonalBanner />
           <AppHeader />
-          <main className="premium-page flex-1 min-w-0 flex flex-col h-full">
+          <main ref={pageMainRef} className="premium-page flex-1 min-w-0 flex flex-col h-full">
             <div className="w-full h-full min-w-0 flex flex-col gap-6">
               {sortedRoles.length > 1 && (
                 <Tabs value={activeRole} onValueChange={(value) => setActiveRole(value as UserRole)} className="w-full mb-4 sm:mb-6">
@@ -100,6 +130,26 @@ function AppContent() {
               </div>
             </div>
           </main>
+          <Button
+            type="button"
+            size="icon"
+            className="fixed bottom-8 right-6 z-[2147483647] h-12 w-12 rounded-full border border-primary/30 bg-primary text-primary-foreground shadow-lg"
+            onClick={() => {
+              window.scrollTo({ top: 0, behavior: 'smooth' });
+              (document.scrollingElement as HTMLElement | null)?.scrollTo({ top: 0, behavior: 'smooth' });
+              pageMainRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
+              const candidates = document.querySelectorAll<HTMLElement>(
+                'main, [data-sidebar="content"], [data-radix-scroll-area-viewport], .overflow-auto, .overflow-y-auto, .overflow-scroll, .overflow-y-scroll, [class*="overflow-y-auto"], [class*="overflow-auto"], [class*="overflow-y-scroll"], [class*="overflow-scroll"]'
+              );
+              candidates.forEach((candidate) => {
+                candidate.scrollTo({ top: 0, behavior: 'smooth' });
+              });
+            }}
+            aria-label="Subir al inicio"
+            title="Subir"
+          >
+            <ChevronUp className="h-5 w-5" />
+          </Button>
         </div>
       </div>
     </SidebarProvider>

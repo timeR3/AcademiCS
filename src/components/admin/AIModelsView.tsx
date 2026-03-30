@@ -20,7 +20,7 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 import { buttonVariants } from '../ui/button';
-import { apiDelete, apiGet } from '@/lib/api-client';
+import { apiDelete, apiGet, getFriendlyErrorMessage } from '@/lib/api-client';
 
 
 export function AIModelsView() {
@@ -39,8 +39,12 @@ export function AIModelsView() {
         try {
             const fetchedModels = await apiGet<AiModel[]>('/api/ai-models');
             setModels(fetchedModels);
-        } catch (error: any) {
-            toast({ title: 'Error', description: `No se pudieron cargar los modelos: ${error.message}`, variant: 'destructive' });
+        } catch (error) {
+            toast({
+                title: 'No pudimos cargar los modelos',
+                description: getFriendlyErrorMessage(error, 'Inténtalo nuevamente en unos segundos.'),
+                variant: 'destructive'
+            });
         } finally {
             setIsLoading(false);
         }
@@ -75,10 +79,10 @@ export function AIModelsView() {
                 description: `El modelo "${modelToDelete.name}" ha sido eliminado.`,
             });
             setModels(prev => prev.filter(m => m.id !== modelToDelete.id));
-        } catch (error: any) {
+        } catch (error) {
              toast({
-                title: 'Error al Eliminar',
-                description: error.message,
+                title: 'No pudimos eliminar el modelo',
+                description: getFriendlyErrorMessage(error, 'Inténtalo nuevamente en unos segundos.'),
                 variant: 'destructive',
             });
         } finally {

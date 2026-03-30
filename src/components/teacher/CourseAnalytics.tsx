@@ -67,8 +67,8 @@ export function CourseAnalytics({ onBack }: CourseAnalyticsProps) {
                     <ArrowLeft className="mr-2 h-4 w-4" />
                     Volver al Resumen del Curso
                 </Button>
-                <div className="text-center sm:text-right">
-                    <h1 className="text-3xl font-bold font-headline">{activeCourse.title}</h1>
+                <div className="min-w-0 text-center sm:text-right">
+                    <h1 className="text-2xl font-bold font-headline break-words sm:text-3xl">{activeCourse.title}</h1>
                     <p className="text-muted-foreground">Análisis de Rendimiento</p>
                 </div>
             </div>

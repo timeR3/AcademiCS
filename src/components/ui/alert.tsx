@@ -10,7 +10,7 @@ const alertVariants = cva(
       variant: {
         default: "bg-background text-foreground",
         destructive:
-          "border-destructive/50 text-destructive dark:border-destructive [&>svg]:text-destructive",
+          "border-destructive/35 bg-destructive/10 text-foreground dark:border-destructive/40 dark:bg-destructive/15 [&>svg]:text-destructive",
       },
     },
     defaultVariants: {

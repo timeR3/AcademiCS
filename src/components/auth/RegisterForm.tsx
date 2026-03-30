@@ -8,7 +8,7 @@ import { Loader2, UserPlus, BookOpenCheck, GraduationCap } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import type { UserRole } from '@/types';
 import { RadioGroup, RadioGroupItem } from '../ui/radio-group';
-import { apiPost } from '@/lib/api-client';
+import { apiPost, getFriendlyErrorMessage } from '@/lib/api-client';
 
 interface RegisterFormProps {
     onToggleView: () => void;
@@ -33,8 +33,12 @@ export function RegisterForm({ onToggleView }: RegisterFormProps) {
         await apiPost<{ success: boolean; userId: number }>('/api/auth/register', { name, email, password, role });
         toast({ title: "¡Registro Exitoso!", description: "Tu cuenta ha sido creada. Ahora puedes iniciar sesión." });
         onToggleView(); // Switch back to login view
-    } catch(error: any) {
-        toast({ title: "Error en el registro", description: error.message || "No se pudo crear tu cuenta. Inténtalo de nuevo.", variant: "destructive" });
+    } catch(error) {
+        toast({
+          title: "No pudimos crear tu cuenta",
+          description: getFriendlyErrorMessage(error, "Revisa los datos del formulario e inténtalo nuevamente."),
+          variant: "destructive"
+        });
     } finally {
         setIsLoading(false);
     }
@@ -43,7 +47,7 @@ export function RegisterForm({ onToggleView }: RegisterFormProps) {
   return (
     <Card className="w-full max-w-sm shadow-2xl animate-fade-in-up">
       <CardHeader className="text-center">
-        <CardTitle className="text-3xl font-headline">Crear una Cuenta</CardTitle>
+        <CardTitle className="text-2xl font-headline sm:text-3xl">Crear una Cuenta</CardTitle>
         <CardDescription>Regístrate para empezar a aprender o enseñar.</CardDescription>
       </CardHeader>
       <form onSubmit={handleSubmit}>
@@ -74,7 +78,7 @@ export function RegisterForm({ onToggleView }: RegisterFormProps) {
                     {/* An admin would typically be created via a different process, not public registration */}
                 </RadioGroup>
            </div>
-          <Button variant="link" className="p-0 h-auto font-normal text-sm" onClick={onToggleView}>
+          <Button type="button" variant="link" className="h-auto p-0 text-left text-sm font-normal whitespace-normal" onClick={onToggleView}>
             ¿Ya tienes cuenta? Inicia sesión
           </Button>
         </CardContent>

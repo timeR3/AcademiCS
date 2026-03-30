@@ -16,7 +16,7 @@ import { format, isValid } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { Switch } from '../ui/switch';
 import { Label } from '../ui/label';
-import { apiGet, apiPatch } from '@/lib/api-client';
+import { apiGet, apiPatch, getFriendlyErrorMessage } from '@/lib/api-client';
 
 export function StudentManagement() {
     const { activeCourse, updateCourse, allUsers } = useCourse();
@@ -38,8 +38,12 @@ export function StudentManagement() {
                 }
                 const users = await apiGet<User[]>('/api/users');
                 setAllPlatformStudents(users.filter(u => u.roles.includes('student')));
-            } catch (error: any) {
-                toast({ title: 'Error', description: 'No se pudo cargar la lista de estudiantes.', variant: 'destructive' });
+            } catch (error) {
+                toast({
+                    title: 'No pudimos cargar la lista de estudiantes',
+                    description: getFriendlyErrorMessage(error, 'Inténtalo nuevamente en unos segundos.'),
+                    variant: 'destructive'
+                });
             } finally {
                 setIsLoading(false);
             }
@@ -109,8 +113,12 @@ export function StudentManagement() {
                     variant: result.message.includes('Error') || result.message.includes('Falta') ? 'destructive' : 'default',
                 });
 
-            } catch (error: any) {
-                 toast({ title: 'Error al Guardar', description: error.message, variant: 'destructive' });
+            } catch (error) {
+                 toast({
+                    title: 'No pudimos guardar los cambios de estudiantes',
+                    description: getFriendlyErrorMessage(error, 'Revisa los datos e inténtalo nuevamente.'),
+                    variant: 'destructive'
+                 });
             } finally {
                 setIsSaving(false);
             }
@@ -130,7 +138,7 @@ export function StudentManagement() {
     return (
         <Card className="premium-surface w-full min-w-0 animate-fade-in-up">
             <CardHeader>
-                <CardTitle className="font-headline text-2xl flex flex-col sm:flex-row sm:items-center gap-2"><UserPlus />Gestionar Estudiantes de "{activeCourse.title}"</CardTitle>
+                <CardTitle className="font-headline text-2xl flex min-w-0 flex-col gap-2 break-words sm:flex-row sm:items-center"><UserPlus className="shrink-0" />Gestionar Estudiantes de "{activeCourse.title}"</CardTitle>
                 <CardDescription>Busca y asigna estudiantes de la plataforma a este curso, y establece fechas límite opcionales.</CardDescription>
             </CardHeader>
             <CardContent>
@@ -156,7 +164,7 @@ export function StudentManagement() {
 
                         return (
                         <div key={student.id} className={cn("flex flex-col sm:flex-row items-start sm:items-center justify-between rounded-xl border p-3 sm:p-4 gap-3 sm:gap-0", isSelected && "bg-primary/5")}>
-                            <div className="flex items-center gap-4 flex-1">
+                            <div className="flex min-w-0 items-center gap-4 flex-1">
                                  <Checkbox 
                                     checked={isSelected}
                                     onCheckedChange={(checked) => handleSelectStudent(student.id, !!checked)}
@@ -168,9 +176,9 @@ export function StudentManagement() {
                                     <AvatarImage src={`https://placehold.co/40x40.png?text=${student.name.substring(0,2)}`} alt={student.name} data-ai-hint="person" />
                                     <AvatarFallback>{student.name.substring(0,2)}</AvatarFallback>
                                 </Avatar>
-                                <div>
-                                    <p className="font-medium">{student.name}</p>
-                                    <p className="text-sm text-muted-foreground">{student.email}</p>
+                                <div className="min-w-0">
+                                    <p className="truncate font-medium">{student.name}</p>
+                                    <p className="truncate text-sm text-muted-foreground">{student.email}</p>
                                 </div>
                             </div>
                            
@@ -213,16 +221,16 @@ export function StudentManagement() {
                 )}
             </CardContent>
             <CardFooter className="flex-col sm:flex-row items-center justify-between border-t pt-6 gap-4">
-                 <div className="flex items-center space-x-2">
+                 <div className="flex w-full items-start gap-2 sm:w-auto sm:items-center">
                     <Switch 
                         id="notify-students" 
                         checked={notifyByEmail} 
                         onCheckedChange={setNotifyByEmail}
                         disabled={isSaving || isLoading}
                     />
-                    <Label htmlFor="notify-students" className="font-normal text-sm">Notificar a los estudiantes recién inscritos</Label>
+                    <Label htmlFor="notify-students" className="font-normal text-sm leading-snug">Notificar a los estudiantes recién inscritos</Label>
                 </div>
-                 <Button onClick={handleSaveChanges} disabled={isSaving || isLoading}>
+                 <Button onClick={handleSaveChanges} disabled={isSaving || isLoading} className="w-full sm:w-auto">
                     {isSaving ? <Loader2 className="animate-spin mr-2" /> : <Save className="mr-2 h-4 w-4" />}
                     {isSaving ? 'Guardando...' : 'Guardar Cambios'}
                 </Button>

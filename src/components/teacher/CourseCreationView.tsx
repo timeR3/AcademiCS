@@ -21,7 +21,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '../ui/
 import { Textarea } from '../ui/textarea';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '../ui/alert-dialog';
 import { buttonVariants } from '../ui/button';
-import { apiPatch, apiPost } from '@/lib/api-client';
+import { apiPatch, apiPost, getFriendlyErrorMessage } from '@/lib/api-client';
 
 
 type ModuleGenerationStatus = 'pending' | 'generating' | 'completed' | 'failed';
@@ -147,9 +147,9 @@ export function CourseCreationView({ onCourseSaved, isEditing = false, isAdminVi
                         : l
                 )
             );
-        } catch (error: any) {
-            const errorMessage = error.message || "An unexpected response was received from the server.";
-            toast({ title: `Error al generar "${nextPendingModule.title}"`, description: errorMessage, variant: "destructive" });
+        } catch (error) {
+            const errorMessage = getFriendlyErrorMessage(error, "No pudimos generar este módulo en este momento. Inténtalo nuevamente.");
+            toast({ title: `No pudimos generar "${nextPendingModule.title}"`, description: errorMessage, variant: "destructive" });
             
             setGeneratedLearningPath(currentPath =>
                 currentPath.map(l => l.id === nextPendingModule.id ? { ...l, generationStatus: 'failed', errorMessage: errorMessage } : l)
@@ -229,8 +229,12 @@ export function CourseCreationView({ onCourseSaved, isEditing = false, isAdminVi
               setActiveCourseId(newCourseId.toString());
               toast({ title: '¡Curso Creado!', description: 'Ahora puedes generar la ruta de aprendizaje.' });
           }
-      } catch (error: any) {
-          toast({ title: "Error al guardar", description: error.message, variant: "destructive" });
+      } catch (error) {
+          toast({
+            title: "No pudimos guardar el curso",
+            description: getFriendlyErrorMessage(error, "Revisa la información e inténtalo nuevamente."),
+            variant: "destructive"
+          });
       } finally {
           setIsLoading(false);
       }
@@ -268,8 +272,12 @@ export function CourseCreationView({ onCourseSaved, isEditing = false, isAdminVi
         setAllStructuredContent([]);
         toast({ title: '¡Ruta de Aprendizaje Guardada!', description: 'La estructura y contenido del curso se han guardado en la base de datos.' });
         await refreshCourses(); 
-    } catch (error: any) {
-        toast({ title: "Error al guardar", description: error.message, variant: "destructive" });
+    } catch (error) {
+        toast({
+          title: "No pudimos guardar la ruta de aprendizaje",
+          description: getFriendlyErrorMessage(error, "Inténtalo nuevamente en unos segundos."),
+          variant: "destructive"
+        });
     } finally {
         setIsLoading(false);
     }
@@ -474,7 +482,7 @@ export function CourseCreationView({ onCourseSaved, isEditing = false, isAdminVi
 
         <Card className="premium-surface w-full animate-fade-in-up">
             <CardHeader>
-                <div className="flex justify-between items-center">
+                <div className="flex items-center justify-between">
                     <CardTitle className="font-headline text-2xl flex items-center gap-2"><BookOpen />3. Ruta de Aprendizaje</CardTitle>
                 </div>
                 <CardDescription>
@@ -493,9 +501,9 @@ export function CourseCreationView({ onCourseSaved, isEditing = false, isAdminVi
                 <Accordion type="single" collapsible value={activeLevelId || ''} onValueChange={handleAccordionChange} className="w-full">
                     {displayPath.map((level, index) => (
                     <AccordionItem value={level.id} key={level.id}>
-                        <div className="flex items-center w-full">
+                        <div className="flex w-full flex-col gap-3 sm:flex-row sm:items-center">
                             <AccordionTrigger className="font-semibold text-lg hover:no-underline flex-1" disabled={isLoading || !isCourseSaved}>
-                                <div className="text-left flex items-center">
+                                <div className="text-left flex min-w-0 items-center">
                                     <span className="mr-2">{index + 1}.</span> 
                                     <Input 
                                         value={level.title}
@@ -506,7 +514,7 @@ export function CourseCreationView({ onCourseSaved, isEditing = false, isAdminVi
                                     />
                                 </div>
                             </AccordionTrigger>
-                                <div className="flex items-center gap-2 pr-4">
+                                <div className="flex w-full items-center justify-end gap-2 px-4 sm:w-auto sm:px-0 sm:pr-4">
                                 {getStatusBadge(level)}
                                 {(level.generationStatus === 'failed' || level.generationStatus === 'completed') && (
                                     <Button

@@ -10,7 +10,7 @@ import { ScrollArea } from '../ui/scroll-area';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useToast } from '@/hooks/use-toast';
 import ReactMarkdown from 'react-markdown';
-import { apiGet } from '@/lib/api-client';
+import { apiGet, getFriendlyErrorMessage } from '@/lib/api-client';
 
 
 const downloadFile = (fileName: string, dataUrl: string) => {
@@ -106,8 +106,12 @@ export function CourseContentView({ course, onStartEvaluation, onBackToDashboard
             } else {
                  throw new Error("El archivo no tiene contenido o el nombre no está disponible.");
             }
-        } catch (error: any) {
-            toast({ title: 'Error de Descarga', description: error.message, variant: 'destructive'});
+        } catch (error) {
+            toast({
+                title: 'No pudimos preparar la descarga',
+                description: getFriendlyErrorMessage(error, 'Inténtalo nuevamente en unos segundos.'),
+                variant: 'destructive'
+            });
         }
     };
 
@@ -120,8 +124,12 @@ export function CourseContentView({ course, onStartEvaluation, onBackToDashboard
             } else {
                  throw new Error("El archivo no tiene contenido o el nombre no está disponible.");
             }
-        } catch (error: any) {
-            toast({ title: 'Error de Descarga', description: error.message, variant: 'destructive'});
+        } catch (error) {
+            toast({
+                title: 'No pudimos preparar la descarga',
+                description: getFriendlyErrorMessage(error, 'Inténtalo nuevamente en unos segundos.'),
+                variant: 'destructive'
+            });
         }
     };
 
@@ -144,7 +152,7 @@ export function CourseContentView({ course, onStartEvaluation, onBackToDashboard
                     <CardTitle className="text-base font-semibold">Índice del curso</CardTitle>
                 </CardHeader>
                 <CardContent className="pt-0">
-                    <div className="max-h-[40vh]">
+                    <div className="h-[40vh] overflow-hidden">
                         <CourseContentSidebar 
                             levels={course.levels} 
                             activeSectionId={activeSection?.id}
@@ -166,9 +174,9 @@ export function CourseContentView({ course, onStartEvaluation, onBackToDashboard
         
         <main className="lg:col-span-3 min-w-0">
              <Tabs defaultValue="content" className="w-full">
-                <TabsList className="w-full grid grid-cols-2 h-auto">
-                    <TabsTrigger value="content" className="text-xs sm:text-sm text-center whitespace-normal leading-tight px-2 py-2">Contenido del Curso</TabsTrigger>
-                    <TabsTrigger value="materials" className="text-xs sm:text-sm text-center whitespace-normal leading-tight px-2 py-2">Material de Estudio</TabsTrigger>
+                <TabsList className="w-full grid grid-cols-1 sm:grid-cols-2 h-auto gap-1">
+                    <TabsTrigger value="content" className="w-full text-xs sm:text-sm px-2 py-2">Contenido del Curso</TabsTrigger>
+                    <TabsTrigger value="materials" className="w-full text-xs sm:text-sm px-2 py-2">Material de Estudio</TabsTrigger>
                 </TabsList>
                 <TabsContent value="content">
                     {activeSection && activeLevel ? (
@@ -217,12 +225,12 @@ export function CourseContentView({ course, onStartEvaluation, onBackToDashboard
                                 {course.sourceFiles && course.sourceFiles.length > 0 ? (
                                     <ul className="space-y-3">
                                         {course.sourceFiles.map(file => (
-                                            <li key={file.id} className="flex items-center justify-between rounded-xl border bg-background p-3">
-                                                <div className='flex items-center gap-3 overflow-hidden'>
+                                            <li key={file.id} className="flex flex-col gap-3 rounded-xl border bg-background p-3 sm:flex-row sm:items-center sm:justify-between">
+                                                <div className='flex items-center gap-3 overflow-hidden min-w-0'>
                                                     <FileText className='h-6 w-6 text-primary shrink-0' />
-                                                    <span className='font-medium'>{file.fileName}</span>
+                                                    <span className='font-medium truncate' title={file.fileName}>{file.fileName}</span>
                                                 </div>
-                                                <Button onClick={() => handleDownloadSourceFile(file)} size="sm">
+                                                <Button onClick={() => handleDownloadSourceFile(file)} size="sm" className="w-full sm:w-auto">
                                                     <Download className="mr-2 h-4 w-4"/>
                                                     Descargar
                                                 </Button>
@@ -238,18 +246,18 @@ export function CourseContentView({ course, onStartEvaluation, onBackToDashboard
                                 {course.bibliography && course.bibliography.length > 0 ? (
                                     <ul className="space-y-3">
                                         {course.bibliography.map(item => (
-                                            <li key={item.id} className="flex items-center justify-between rounded-xl border bg-background p-3">
-                                                <div className='flex items-center gap-3 overflow-hidden'>
+                                            <li key={item.id} className="flex flex-col gap-3 rounded-xl border bg-background p-3 sm:flex-row sm:items-center sm:justify-between">
+                                                <div className='flex items-center gap-3 overflow-hidden min-w-0'>
                                                     {item.itemType === 'file' ? <BookOpen className='h-6 w-6 text-primary shrink-0' /> : <LinkIcon className='h-6 w-6 text-primary shrink-0' />}
                                                     <span className='font-medium truncate' title={item.itemName}>{item.itemName}</span>
                                                 </div>
                                                 {item.itemType === 'file' ? (
-                                                     <Button onClick={() => handleDownloadBibliographyItem(item)} size="sm">
+                                                     <Button onClick={() => handleDownloadBibliographyItem(item)} size="sm" className="w-full sm:w-auto">
                                                         <Download className="mr-2 h-4 w-4"/>
                                                         Descargar
                                                     </Button>
                                                 ) : (
-                                                    <Button asChild size="sm">
+                                                    <Button asChild size="sm" className="w-full sm:w-auto">
                                                         <a href={item.url || ''} target="_blank" rel="noopener noreferrer">
                                                             <LinkIcon className="mr-2 h-4 w-4" />
                                                             Abrir Enlace

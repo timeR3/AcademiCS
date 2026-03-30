@@ -45,8 +45,8 @@ export function SuspendedCourseOverview({ onBack, onReactivate, onDuplicate, onA
             </Button>
             <Card className="premium-surface">
                 <CardHeader className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-                    <div>
-                        <CardTitle className="font-headline text-3xl">{title}</CardTitle>
+                    <div className="min-w-0">
+                        <CardTitle className="font-headline text-2xl break-words sm:text-3xl">{title}</CardTitle>
                         <CardDescription>Resumen de un curso suspendido (solo lectura).</CardDescription>
                     </div>
                     <div className="flex flex-wrap gap-2">
@@ -76,7 +76,7 @@ export function SuspendedCourseOverview({ onBack, onReactivate, onDuplicate, onA
                             </CardTitle>
                         </CardHeader>
                         <CardContent>
-                            <ScrollArea className="h-full max-h-[600px] mt-2">
+                            <ScrollArea className="mt-2 h-full max-h-[60vh] sm:max-h-[600px]">
                                 <Accordion type="single" collapsible className="w-full pr-4">
                                     {levels.map((level) => (
                                         <AccordionItem value={level.id} key={level.id}>
@@ -114,18 +114,18 @@ export function SuspendedCourseOverview({ onBack, onReactivate, onDuplicate, onA
                             <CardDescription>({enrolledStudents.length} en total)</CardDescription>
                         </CardHeader>
                         <CardContent>
-                            <ScrollArea className="h-full max-h-[500px]">
+                            <ScrollArea className="h-full max-h-[55vh] sm:max-h-[500px]">
                                {enrolledStudents.length > 0 ? (
                                     <ul className="space-y-4 pr-6">
                                         {enrolledStudents.map(student => (
-                                            <li key={student.id} className="flex items-center gap-4">
+                                            <li key={student.id} className="flex min-w-0 items-center gap-4">
                                                 <Avatar>
                                                     <AvatarImage src={`https://placehold.co/40x40.png?text=${student.name.substring(0,2)}`} alt={student.name} data-ai-hint="person" />
                                                     <AvatarFallback>{student.name.substring(0,2)}</AvatarFallback>
                                                 </Avatar>
-                                                <div>
-                                                    <span className="font-medium">{student.name}</span>
-                                                    <p className="text-sm text-muted-foreground">{student.email}</p>
+                                                <div className="min-w-0">
+                                                    <span className="block truncate font-medium">{student.name}</span>
+                                                    <p className="truncate text-sm text-muted-foreground">{student.email}</p>
                                                 </div>
                                             </li>
                                         ))}

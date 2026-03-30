@@ -21,7 +21,7 @@ import { Loader2, Save, Award, CheckCircle2, ShieldCheck, Star, Sparkles, BrainC
 import { Textarea } from '../ui/textarea';
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '../ui/select';
 import { BadgeIcon } from '../student/BadgeIcon';
-import { apiPost } from '@/lib/api-client';
+import { apiPost, getFriendlyErrorMessage } from '@/lib/api-client';
 
 interface BadgeDialogProps {
   badge: Partial<Badge> | null;
@@ -120,10 +120,10 @@ export function BadgeDialog({ badge, isOpen, onClose, onBadgeSaved }: BadgeDialo
       });
       onBadgeSaved();
       onClose();
-    } catch (error: any) {
+    } catch (error) {
       toast({
-        title: 'Error al guardar',
-        description: error.message,
+        title: 'No pudimos guardar la insignia',
+        description: getFriendlyErrorMessage(error, 'Revisa la información e inténtalo nuevamente.'),
         variant: 'destructive',
       });
     } finally {

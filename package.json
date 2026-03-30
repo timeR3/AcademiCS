@@ -12,7 +12,8 @@
     "lint:frontend:strict": "eslint \"src/**/*.{ts,tsx}\" --max-warnings=0",
     "lint:php": "node -e \"const fs=require('fs');const path=require('path');const cp=require('child_process');try{cp.execFileSync('php',['-v'],{stdio:'ignore'});}catch{console.error('PHP no está disponible en PATH');process.exit(1);}const files=[];const walk=d=>{for(const e of fs.readdirSync(d,{withFileTypes:true})){const p=path.join(d,e.name);if(e.isDirectory())walk(p);else if(e.isFile()&&p.endsWith('.php'))files.push(p);}};walk('backend-php');let failed=false;for(const f of files){try{cp.execFileSync('php',['-l',f],{stdio:'pipe'});}catch(err){failed=true;if(err.stdout)process.stdout.write(err.stdout.toString());if(err.stderr)process.stderr.write(err.stderr.toString());}}if(failed)process.exit(1);console.log('PHP lint OK: '+files.length+' archivos');\"",
     "lint": "npm run lint:frontend && npm run lint:php",
-    "lint:strict": "npm run lint:frontend:strict && npm run lint:php"
+    "lint:strict": "npm run lint:frontend:strict && npm run lint:php",
+    "verify": "npm run lint:strict && npm run typecheck && npm run build"
   },
   "dependencies": {
     "@genkit-ai/compat-oai": "^1.30.1",

@@ -10,7 +10,7 @@ import type { CourseCategory } from '@/types';
 import { Loader2, PlusCircle, CheckCircle, XCircle } from 'lucide-react';
 import { Switch } from '@/components/ui/switch';
 import { Badge } from '../ui/badge';
-import { apiGet, apiPatch, apiPost } from '@/lib/api-client';
+import { apiGet, apiPatch, apiPost, getFriendlyErrorMessage } from '@/lib/api-client';
 import {
   Dialog,
   DialogContent,
@@ -40,8 +40,12 @@ export function CategoriesView() {
         try {
             const fetchedCategories = await apiGet<CourseCategory[]>('/api/categories');
             setCategories(fetchedCategories);
-        } catch (error: any) {
-            toast({ title: 'Error', description: `No se pudieron cargar las categorías: ${error.message}`, variant: 'destructive' });
+        } catch (error) {
+            toast({
+                title: 'No pudimos cargar las categorías',
+                description: getFriendlyErrorMessage(error, 'Inténtalo nuevamente en unos segundos.'),
+                variant: 'destructive'
+            });
         } finally {
             setIsLoading(false);
         }
@@ -62,8 +66,12 @@ export function CategoriesView() {
             toast({ title: 'Categoría Creada', description: `La categoría "${newCategoryName}" ha sido creada.` });
             setNewCategoryName('');
             await loadCategories();
-        } catch (error: any) {
-            toast({ title: 'Error al Crear', description: error.message, variant: 'destructive' });
+        } catch (error) {
+            toast({
+                title: 'No pudimos crear la categoría',
+                description: getFriendlyErrorMessage(error, 'Revisa el nombre e inténtalo nuevamente.'),
+                variant: 'destructive'
+            });
         } finally {
             setIsSaving(false);
         }
@@ -85,8 +93,12 @@ export function CategoriesView() {
             await apiPatch<{ success: boolean }>('/api/categories', { id: category.id, status });
             toast({ title: 'Estado Actualizado', description: `La categoría "${category.name}" ahora está ${status === 'active' ? 'activa' : 'inactiva'}.` });
             await loadCategories();
-        } catch (error: any) {
-            toast({ title: 'Error al Actualizar', description: error.message, variant: 'destructive' });
+        } catch (error) {
+            toast({
+                title: 'No pudimos actualizar el estado de la categoría',
+                description: getFriendlyErrorMessage(error, 'Inténtalo nuevamente en unos segundos.'),
+                variant: 'destructive'
+            });
         } finally {
             setIsSaving(false);
         }
@@ -107,8 +119,12 @@ export function CategoriesView() {
             setEditingCategory(null);
             setEditingName('');
             await loadCategories();
-        } catch (error: any) {
-            toast({ title: 'Error al Renombrar', description: error.message, variant: 'destructive' });
+        } catch (error) {
+            toast({
+                title: 'No pudimos actualizar el nombre de la categoría',
+                description: getFriendlyErrorMessage(error, 'Revisa el nuevo nombre e inténtalo nuevamente.'),
+                variant: 'destructive'
+            });
         } finally {
             setIsSaving(false);
         }

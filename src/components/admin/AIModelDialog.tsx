@@ -19,7 +19,7 @@ import type { AiModel } from '@/types';
 import { useState, useEffect } from 'react';
 import { Loader2, Save } from 'lucide-react';
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '../ui/select';
-import { apiPost } from '@/lib/api-client';
+import { apiPost, getFriendlyErrorMessage } from '@/lib/api-client';
 
 interface AIModelDialogProps {
   model: Partial<AiModel> | null;
@@ -91,10 +91,10 @@ export function AIModelDialog({ model, isOpen, onClose, onModelSaved }: AIModelD
       });
       onModelSaved();
       onClose();
-    } catch (error: any) {
+    } catch (error) {
       toast({
-        title: 'Error al guardar',
-        description: error.message,
+        title: 'No pudimos guardar el modelo',
+        description: getFriendlyErrorMessage(error, 'Revisa la información e inténtalo nuevamente.'),
         variant: 'destructive',
       });
     } finally {

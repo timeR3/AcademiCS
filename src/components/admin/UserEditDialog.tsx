@@ -24,7 +24,7 @@ import { Loader2, Save } from 'lucide-react';
 import { Separator } from '../ui/separator';
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '../ui/select';
 import { Switch } from '../ui/switch';
-import { apiGet, apiPatch } from '@/lib/api-client';
+import { apiGet, apiPatch, getFriendlyErrorMessage } from '@/lib/api-client';
 
 interface UserEditDialogProps {
   user: User | null;
@@ -113,10 +113,10 @@ export function UserEditDialog({ user, allRoles, isOpen, onClose, onUserUpdated 
       });
       onUserUpdated();
       onClose();
-    } catch (error: any) {
+    } catch (error) {
       toast({
-        title: 'Error al actualizar',
-        description: error.message,
+        title: 'No pudimos actualizar el usuario',
+        description: getFriendlyErrorMessage(error, 'Revisa la información y vuelve a intentarlo.'),
         variant: 'destructive',
       });
     } finally {
@@ -133,10 +133,10 @@ export function UserEditDialog({ user, allRoles, isOpen, onClose, onUserUpdated 
         if (!current) return current;
         return { ...current, [key]: enabled };
       });
-    } catch (error: any) {
+    } catch (error) {
       toast({
-        title: 'Error al actualizar',
-        description: error.message,
+        title: 'No pudimos guardar la preferencia',
+        description: getFriendlyErrorMessage(error, 'Inténtalo nuevamente en unos segundos.'),
         variant: 'destructive',
       });
     } finally {
@@ -155,10 +155,10 @@ export function UserEditDialog({ user, allRoles, isOpen, onClose, onUserUpdated 
         title: 'Preferencias restablecidas',
         description: 'Las notificaciones del usuario fueron restablecidas.',
       });
-    } catch (error: any) {
+    } catch (error) {
       toast({
-        title: 'Error al restablecer',
-        description: error.message,
+        title: 'No pudimos restablecer las notificaciones',
+        description: getFriendlyErrorMessage(error, 'Vuelve a intentarlo en un momento.'),
         variant: 'destructive',
       });
     } finally {
@@ -170,14 +170,15 @@ export function UserEditDialog({ user, allRoles, isOpen, onClose, onUserUpdated 
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="sm:max-w-[480px]">
-        <DialogHeader>
+      <DialogContent className="w-[calc(100%-2rem)] sm:max-w-[860px] h-[90vh] max-h-[90vh] overflow-hidden p-0 flex flex-col gap-0">
+        <DialogHeader className="border-b px-6 py-4 bg-background">
           <DialogTitle>Editar Usuario: {user.name}</DialogTitle>
           <DialogDescription>
             Modifica los datos del usuario. El cambio de contraseña es opcional.
           </DialogDescription>
         </DialogHeader>
-        <form onSubmit={handleSubmit(onSubmit)} className="space-y-6 pt-4">
+        <form onSubmit={handleSubmit(onSubmit)} className="flex min-h-0 flex-1 flex-col overflow-hidden">
+          <div className="flex-1 min-h-0 space-y-6 overflow-y-auto px-6 py-4">
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
              <div className="space-y-2">
                 <Label htmlFor="name">Nombre Completo</Label>
@@ -253,16 +254,16 @@ export function UserEditDialog({ user, allRoles, isOpen, onClose, onUserUpdated 
           </div>
           <Separator />
           <div className="space-y-4">
-            <div className="flex items-center justify-between gap-2">
+            <div className="flex flex-col items-start gap-2 sm:flex-row sm:items-center sm:justify-between">
               <Label className="font-semibold">Notificaciones del Usuario</Label>
-              <Button type="button" variant="outline" size="sm" onClick={handleResetPreferences} disabled={isSavingPreferences}>
+              <Button type="button" variant="outline" size="sm" onClick={handleResetPreferences} disabled={isSavingPreferences} className="w-full sm:w-auto">
                 Restablecer
               </Button>
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               {notificationPreferenceDefinitions.map((item) => (
-                <div key={item.key} className="flex items-center justify-between rounded-2xl border p-3">
-                  <p className="text-sm">{item.label}</p>
+                <div key={item.key} className="flex items-start justify-between gap-3 rounded-2xl border p-3">
+                  <p className="min-w-0 text-sm">{item.label}</p>
                   <Switch
                     checked={preferences?.[item.key] ?? true}
                     disabled={isSavingPreferences}
@@ -272,7 +273,8 @@ export function UserEditDialog({ user, allRoles, isOpen, onClose, onUserUpdated 
               ))}
             </div>
           </div>
-          <DialogFooter>
+          </div>
+          <DialogFooter className="shrink-0 border-t px-6 py-4 bg-background">
             <DialogClose asChild>
                 <Button type="button" variant="outline">
                 Cancelar

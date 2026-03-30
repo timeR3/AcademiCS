@@ -20,7 +20,7 @@ import { differenceInCalendarDays, isValid, parseISO } from 'date-fns';
 import { Badge } from '../ui/badge';
 import ReactMarkdown from 'react-markdown';
 import { CourseBibliography } from './CourseBibliography';
-import { apiGet } from '@/lib/api-client';
+import { apiGet, getFriendlyErrorMessage } from '@/lib/api-client';
 
 interface CourseOverviewProps {
     onBack: () => void;
@@ -78,8 +78,12 @@ export function CourseOverview({ onBack, onEdit, onManageStudents, onViewAnalyti
             } else {
                  throw new Error("El archivo no tiene contenido o el nombre no está disponible.");
             }
-        } catch (error: any) {
-            toast({ title: 'Error de Descarga', description: error.message, variant: 'destructive'});
+        } catch (error) {
+            toast({
+                title: 'No pudimos preparar la descarga',
+                description: getFriendlyErrorMessage(error, 'Inténtalo nuevamente en unos segundos.'),
+                variant: 'destructive'
+            });
         }
     };
     
@@ -111,8 +115,8 @@ export function CourseOverview({ onBack, onEdit, onManageStudents, onViewAnalyti
             </Button>
             <Card className="premium-surface">
                 <CardHeader className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-                    <div>
-                        <CardTitle className="font-headline text-3xl">{title}</CardTitle>
+                    <div className="min-w-0">
+                        <CardTitle className="font-headline text-2xl break-words sm:text-3xl">{title}</CardTitle>
                         <CardDescription>Resumen de la ruta de aprendizaje y estudiantes inscritos.</CardDescription>
                     </div>
                     <div className="flex flex-wrap gap-2">
@@ -159,12 +163,12 @@ export function CourseOverview({ onBack, onEdit, onManageStudents, onViewAnalyti
                                 {sourceFiles && sourceFiles.length > 0 ? (
                                     <ul className="space-y-3">
                                         {sourceFiles.map(file => (
-                                            <li key={file.id} className="flex items-center justify-between rounded-xl border bg-background p-3">
-                                                <div className='flex items-center gap-3 overflow-hidden'>
+                                            <li key={file.id} className="flex flex-col gap-3 rounded-xl border bg-background p-3 sm:flex-row sm:items-center sm:justify-between">
+                                                <div className='flex items-center gap-3 overflow-hidden min-w-0'>
                                                     <FileText className='h-6 w-6 text-primary shrink-0' />
                                                     <span className='font-medium text-sm truncate' title={file.fileName}>{file.fileName}</span>
                                                 </div>
-                                                <Button onClick={() => handleDownload(file)} size="sm" variant="ghost">
+                                                <Button onClick={() => handleDownload(file)} size="sm" variant="ghost" className="w-full sm:w-auto">
                                                     <Download className="h-4 w-4"/>
                                                 </Button>
                                             </li>

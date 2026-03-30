@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Loader2, Save, Trophy, Calculator, Settings, FolderKanban, Award, Bot, Cpu, PartyPopper, Bell } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import type { AppSettings } from '@/types';
-import { apiGet, apiPatch } from '@/lib/api-client';
+import { apiGet, apiPatch, getFriendlyErrorMessage } from '@/lib/api-client';
 import { Input } from '../ui/input';
 import { Label } from '../ui/label';
 import { Switch } from '../ui/switch';
@@ -117,10 +117,10 @@ export function SettingsView() {
             
             loadAllSettings();
 
-        } catch (error: any) {
+        } catch (error) {
              toast({
-                title: "Error al Guardar",
-                description: `No se pudo guardar la configuración: ${error.message}`,
+                title: "No pudimos guardar la configuración",
+                description: getFriendlyErrorMessage(error, "Revisa los cambios e inténtalo nuevamente."),
                 variant: "destructive"
             });
         } finally {
@@ -141,10 +141,10 @@ export function SettingsView() {
                 description: "Las notificaciones globales han sido actualizadas.",
             });
             loadAllSettings();
-        } catch (error: any) {
+        } catch (error) {
             toast({
-                title: "Error al Guardar",
-                description: `No se pudo guardar la configuración: ${error.message}`,
+                title: "No pudimos guardar las notificaciones",
+                description: getFriendlyErrorMessage(error, "Inténtalo nuevamente en unos segundos."),
                 variant: "destructive"
             });
         } finally {
@@ -167,10 +167,10 @@ export function SettingsView() {
                 description: "Las notificaciones globales volvieron a los valores predeterminados.",
             });
             loadAllSettings();
-        } catch (error: any) {
+        } catch (error) {
             toast({
-                title: "Error al Restablecer",
-                description: `No se pudo restablecer la configuración: ${error.message}`,
+                title: "No pudimos restablecer las notificaciones",
+                description: getFriendlyErrorMessage(error, "Vuelve a intentarlo en unos momentos."),
                 variant: "destructive"
             });
         } finally {
@@ -189,14 +189,14 @@ export function SettingsView() {
             </div>
 
             <Tabs defaultValue="general" className="w-full min-w-0">
-                <TabsList className="grid h-auto w-full grid-cols-2 gap-1 lg:grid-cols-4 2xl:grid-cols-7">
-                    <TabsTrigger value="general" className="px-2 py-2 text-xs sm:text-sm"><Settings className="mr-1 h-4 w-4 sm:mr-2"/>General</TabsTrigger>
-                    <TabsTrigger value="notifications" className="px-2 py-2 text-xs sm:text-sm"><Bell className="mr-1 h-4 w-4 sm:mr-2"/>Notificaciones</TabsTrigger>
-                    <TabsTrigger value="categories" className="px-2 py-2 text-xs sm:text-sm"><FolderKanban className="mr-1 h-4 w-4 sm:mr-2"/>Categorías</TabsTrigger>
-                    <TabsTrigger value="badges" className="px-2 py-2 text-xs sm:text-sm"><Award className="mr-1 h-4 w-4 sm:mr-2"/>Insignias</TabsTrigger>
-                    <TabsTrigger value="decorations" className="px-2 py-2 text-xs sm:text-sm"><PartyPopper className="mr-1 h-4 w-4 sm:mr-2"/>Tema</TabsTrigger>
-                    <TabsTrigger value="ai" className="px-2 py-2 text-xs sm:text-sm"><Bot className="mr-1 h-4 w-4 sm:mr-2"/>Prompts IA</TabsTrigger>
-                    <TabsTrigger value="models" className="px-2 py-2 text-xs sm:text-sm"><Cpu className="mr-1 h-4 w-4 sm:mr-2"/>Modelos IA</TabsTrigger>
+                <TabsList className="grid h-auto w-full grid-cols-1 gap-1 sm:grid-cols-2 lg:grid-cols-4 2xl:grid-cols-7">
+                    <TabsTrigger value="general" className="w-full px-2 py-2 text-xs sm:text-sm"><Settings className="mr-1 h-4 w-4 sm:mr-2"/>General</TabsTrigger>
+                    <TabsTrigger value="notifications" className="w-full px-2 py-2 text-xs sm:text-sm"><Bell className="mr-1 h-4 w-4 sm:mr-2"/>Notificaciones</TabsTrigger>
+                    <TabsTrigger value="categories" className="w-full px-2 py-2 text-xs sm:text-sm"><FolderKanban className="mr-1 h-4 w-4 sm:mr-2"/>Categorías</TabsTrigger>
+                    <TabsTrigger value="badges" className="w-full px-2 py-2 text-xs sm:text-sm"><Award className="mr-1 h-4 w-4 sm:mr-2"/>Insignias</TabsTrigger>
+                    <TabsTrigger value="decorations" className="w-full px-2 py-2 text-xs sm:text-sm"><PartyPopper className="mr-1 h-4 w-4 sm:mr-2"/>Tema</TabsTrigger>
+                    <TabsTrigger value="ai" className="w-full px-2 py-2 text-xs sm:text-sm"><Bot className="mr-1 h-4 w-4 sm:mr-2"/>Prompts IA</TabsTrigger>
+                    <TabsTrigger value="models" className="w-full px-2 py-2 text-xs sm:text-sm"><Cpu className="mr-1 h-4 w-4 sm:mr-2"/>Modelos IA</TabsTrigger>
                 </TabsList>
                 
                 <TabsContent value="general" className="mt-6 w-full">

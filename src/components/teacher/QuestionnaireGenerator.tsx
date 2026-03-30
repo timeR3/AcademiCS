@@ -15,7 +15,7 @@ import { useCourse } from '@/context/CourseContext';
 import { Textarea } from '../ui/textarea';
 import { RadioGroup, RadioGroupItem } from '../ui/radio-group';
 import { Accordion, AccordionItem, AccordionTrigger, AccordionContent } from '../ui/accordion';
-import { apiPost, apiPatch } from '@/lib/api-client';
+import { apiPost, apiPatch, getFriendlyErrorMessage } from '@/lib/api-client';
 
 
 interface QuestionnaireGeneratorProps {
@@ -73,8 +73,12 @@ export function QuestionnaireGenerator({ level, isLoading, onQuestionnaireGenera
       if (newQuestions.length > 0) {
         setEditingQuestionIndex(0);
       }
-    } catch (error: any) {
-      toast({ title: 'Falló la Generación', description: `No se pudieron generar las preguntas. ${error.message}`, variant: 'destructive' });
+    } catch (error) {
+      toast({
+        title: 'No pudimos generar las preguntas',
+        description: getFriendlyErrorMessage(error, 'Inténtalo nuevamente en unos segundos.'),
+        variant: 'destructive'
+      });
     } finally {
       setIsGenerating(false);
     }
@@ -105,8 +109,12 @@ export function QuestionnaireGenerator({ level, isLoading, onQuestionnaireGenera
         }
         onQuestionnaireGenerated(level.id, generatedQuestions, numQuestionsToDisplay);
         toast({ title: '¡Cuestionario Guardado!', description: 'El banco de preguntas y la configuración se han guardado en la base de datos.'});
-      } catch(e: any) {
-        toast({ title: 'Error al Guardar', description: e.message, variant: 'destructive' });
+      } catch (error) {
+        toast({
+          title: 'No pudimos guardar el cuestionario',
+          description: getFriendlyErrorMessage(error, 'Revisa la configuración e inténtalo nuevamente.'),
+          variant: 'destructive'
+        });
       } finally {
         setIsSaving(false);
       }
@@ -164,8 +172,8 @@ export function QuestionnaireGenerator({ level, isLoading, onQuestionnaireGenera
         <p className="text-sm text-muted-foreground">Genera un banco de preguntas para este módulo. Luego, edita las preguntas, define cuántas se mostrarán al estudiante y guarda los cambios.</p>
         
         <div className="grid grid-cols-1 xl:grid-cols-[auto,auto,minmax(0,1fr),auto,auto] gap-4 items-center">
-            <div className="flex items-center gap-4">
-                <Label htmlFor={`num-questions-gen-${level.id}`} className="font-medium whitespace-nowrap">Nº de Preguntas a Generar</Label>
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-4">
+                <Label htmlFor={`num-questions-gen-${level.id}`} className="font-medium">Nº de Preguntas a Generar</Label>
                 <Input
                 id={`num-questions-gen-${level.id}`}
                 type="number"
@@ -176,8 +184,8 @@ export function QuestionnaireGenerator({ level, isLoading, onQuestionnaireGenera
                 disabled={isLoading || isGenerating || isSaving}
                 />
             </div>
-            <div className="flex items-center gap-4">
-                <Label htmlFor={`num-questions-display-${level.id}`} className="font-medium whitespace-nowrap">Nº de Preguntas a Mostrar</Label>
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-4">
+                <Label htmlFor={`num-questions-display-${level.id}`} className="font-medium">Nº de Preguntas a Mostrar</Label>
                 <Input
                 id={`num-questions-display-${level.id}`}
                 type="number"
@@ -233,20 +241,20 @@ export function QuestionnaireGenerator({ level, isLoading, onQuestionnaireGenera
           <div className="mt-4 space-y-6">
             <div className="space-y-2">
                  <h4 className="font-semibold">Editor del Banco de Preguntas ({generatedQuestions.length} en total)</h4>
-                <ScrollArea className="h-[500px] space-y-4 rounded-xl border bg-background p-4">
+                <ScrollArea className="h-[55vh] max-h-[500px] space-y-4 rounded-xl border bg-background p-4">
                    <Accordion type="single" collapsible value={editingQuestionIndex !== null ? `q-${editingQuestionIndex}` : undefined} onValueChange={(value) => setEditingQuestionIndex(value ? parseInt(value.split('-')[1]) : null)}>
                     {generatedQuestions.map((q, qIndex) => {
                         const isEditingThis = editingQuestionIndex === qIndex;
                         return (
                         <AccordionItem value={`q-${qIndex}`} key={`q-${qIndex}`} className="mb-2 rounded-xl border bg-card">
-                           <div className="flex items-center w-full">
+                        <div className="flex w-full flex-col gap-3 sm:flex-row sm:items-center">
                                 <AccordionTrigger className="font-semibold text-base hover:no-underline flex-1 text-left px-4 py-2">
                                     <span className="text-left flex items-start pr-4">
                                         <span className="text-primary font-bold mr-3">{qIndex + 1}.</span>
                                         {q.text}
                                     </span>
                                 </AccordionTrigger>
-                                <div className="flex items-center gap-2 pl-4 pr-4">
+                                <div className="flex w-full items-center justify-end gap-2 px-4 sm:w-auto sm:px-0">
                                      <Button size="sm" variant={isEditingThis ? "default" : "outline"} onClick={() => handleToggleEdit(qIndex)} disabled={isLoading || isSaving}>
                                         {isEditingThis ? <Check className="mr-2 h-4 w-4"/> : <Pencil className="mr-2 h-4 w-4"/>}
                                         {isEditingThis ? 'Aceptar' : 'Editar'}

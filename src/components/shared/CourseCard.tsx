@@ -48,6 +48,8 @@ export function CourseCard({
     const isStarted = progress > 0;
 
     const allStudentsCompleted = course.students.length > 0 && course.completedStudentIds.length === course.students.length;
+    const finalScoreValue = typeof course.finalScore === 'number' && Number.isFinite(course.finalScore) ? course.finalScore : null;
+    const showScoreStar = isStudentView && isCompleted && finalScoreValue !== null;
     
     let daysRemaining: number | null = null;
     if (course.dueDate) {
@@ -71,21 +73,23 @@ export function CourseCard({
     
     return (
         <Card className="premium-surface flex flex-col transition-all duration-300 hover:shadow-md hover:-translate-y-1 relative overflow-hidden" onMouseEnter={onPrefetch} onFocus={onPrefetch}>
-            {isStudentView && isCompleted && course.finalScore !== undefined && (
-                <div className="absolute top-2 right-2 z-10">
-                    <div className="relative w-20 h-20 flex items-center justify-center">
-                        <Star className="text-accent-foreground fill-accent-foreground h-full w-full" />
-                        <span className="absolute text-white font-bold text-lg drop-shadow-md pb-1">
-                            {course.finalScore.toFixed(1)}
-                        </span>
+            <CardHeader>
+                <div className={showScoreStar ? "flex items-start justify-between gap-3" : ""}>
+                    <div className={showScoreStar ? "min-w-0 flex-1" : ""}>
+                        <CardTitle className="font-headline text-2xl">{course.title}</CardTitle>
+                        <CardDescription>
+                            {mainSyllabusTopic}
+                        </CardDescription>
                     </div>
+                    {showScoreStar && (
+                        <div className="relative h-16 w-16 shrink-0">
+                            <Star className="h-full w-full text-amber-400 fill-amber-400" />
+                            <span className="absolute inset-0 flex items-center justify-center pb-1 text-sm font-bold text-[#132F4C]">
+                                {finalScoreValue?.toFixed(1)}
+                            </span>
+                        </div>
+                    )}
                 </div>
-            )}
-            <CardHeader className={isStudentView && isCompleted ? "pr-24" : ""}>
-                <CardTitle className="font-headline text-2xl">{course.title}</CardTitle>
-                <CardDescription>
-                    {mainSyllabusTopic}
-                </CardDescription>
             </CardHeader>
             <CardContent className="flex-grow space-y-4">
                  <div className="flex flex-wrap gap-2">

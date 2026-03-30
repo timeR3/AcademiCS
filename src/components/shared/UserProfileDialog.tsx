@@ -18,7 +18,7 @@ import {
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useToast } from '@/hooks/use-toast';
-import { apiGet, apiPatch } from '@/lib/api-client';
+import { apiGet, apiPatch, getFriendlyErrorMessage } from '@/lib/api-client';
 import type { NotificationPreferences, NotificationPreferenceType, User } from '@/types';
 import { Loader2, Save } from 'lucide-react';
 import { Switch } from '../ui/switch';
@@ -105,10 +105,10 @@ export function UserProfileDialog({ user, isOpen, onClose, onUserUpdated }: User
         title: 'Preferencia actualizada',
         description: 'La configuración de notificaciones fue guardada.',
       });
-    } catch (error: any) {
+    } catch (error) {
       toast({
-        title: 'Error al actualizar',
-        description: error.message,
+        title: 'No pudimos guardar esta preferencia',
+        description: getFriendlyErrorMessage(error, 'Inténtalo nuevamente en unos segundos.'),
         variant: 'destructive',
       });
     } finally {
@@ -127,10 +127,10 @@ export function UserProfileDialog({ user, isOpen, onClose, onUserUpdated }: User
         title: 'Preferencias restablecidas',
         description: 'Se restauraron las notificaciones a su valor predeterminado.',
       });
-    } catch (error: any) {
+    } catch (error) {
       toast({
-        title: 'Error al restablecer',
-        description: error.message,
+        title: 'No pudimos restablecer las notificaciones',
+        description: getFriendlyErrorMessage(error, 'Vuelve a intentarlo en un momento.'),
         variant: 'destructive',
       });
     } finally {
@@ -159,10 +159,10 @@ export function UserProfileDialog({ user, isOpen, onClose, onUserUpdated }: User
         onUserUpdated({ name: data.name });
         onClose();
       }
-    } catch (error: any) {
+    } catch (error) {
       toast({
-        title: 'Error al actualizar',
-        description: error.message,
+        title: 'No pudimos actualizar tu perfil',
+        description: getFriendlyErrorMessage(error, 'Revisa los datos e inténtalo nuevamente.'),
         variant: 'destructive',
       });
     } finally {
@@ -198,9 +198,9 @@ export function UserProfileDialog({ user, isOpen, onClose, onUserUpdated }: User
               {errors.password && <p className="text-destructive text-sm">{errors.password.message}</p>}
             </div>
             <div className="space-y-3 rounded-2xl border p-4">
-              <div className="flex items-center justify-between gap-2">
+              <div className="flex flex-col items-start gap-2 sm:flex-row sm:items-center sm:justify-between">
                 <h3 className="text-sm font-semibold">Notificaciones personales</h3>
-                <Button type="button" variant="outline" size="sm" onClick={handleResetPreferences} disabled={isSavingPreferences}>
+                <Button type="button" variant="outline" size="sm" onClick={handleResetPreferences} disabled={isSavingPreferences} className="w-full sm:w-auto">
                   Restablecer
                 </Button>
               </div>

@@ -13,7 +13,7 @@ import { Calendar } from '../ui/calendar';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { cn } from '@/lib/utils';
-import { apiGet, apiPatch } from '@/lib/api-client';
+import { apiGet, apiPatch, getFriendlyErrorMessage } from '@/lib/api-client';
 
 
 export function SeasonalDecorationsView() {
@@ -81,10 +81,10 @@ export function SeasonalDecorationsView() {
             
             loadAllSettings();
 
-        } catch (error: any) {
+        } catch (error) {
              toast({
-                title: "Error al Guardar",
-                description: `No se pudo guardar la configuración: ${error.message}`,
+                title: "No pudimos guardar la configuración",
+                description: getFriendlyErrorMessage(error, "Inténtalo nuevamente en unos segundos."),
                 variant: "destructive"
             });
         } finally {

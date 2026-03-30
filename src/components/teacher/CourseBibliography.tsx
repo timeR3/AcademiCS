@@ -8,7 +8,7 @@ import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { Loader2, UploadCloud, FileText, Trash2, Link as LinkIcon, Plus } from 'lucide-react';
 import type { CourseBibliographyItem } from '@/types';
-import { apiDelete, apiPost } from '@/lib/api-client';
+import { apiDelete, apiPost, getFriendlyErrorMessage } from '@/lib/api-client';
 
 const fileToDataURL = (file: File): Promise<string> => {
   return new Promise((resolve, reject) => {
@@ -44,8 +44,12 @@ export function CourseBibliography() {
         });
         toast({ title: 'Archivo Añadido', description: `${file.name} ha sido añadido a la bibliografía.` });
         await refreshCourses();
-      } catch (error: any) {
-        toast({ title: 'Error al Subir', description: error.message, variant: 'destructive' });
+      } catch (error) {
+        toast({
+          title: 'No pudimos subir el archivo',
+          description: getFriendlyErrorMessage(error, 'Inténtalo nuevamente en unos segundos.'),
+          variant: 'destructive'
+        });
       } finally {
         setIsUploading(false);
       }
@@ -67,8 +71,12 @@ export function CourseBibliography() {
           toast({ title: 'Enlace Añadido', description: 'El enlace ha sido añadido a la bibliografía.'});
           setLinkUrl('');
           await refreshCourses();
-      } catch (error: any) {
-          toast({ title: 'Error al Añadir Enlace', description: error.message, variant: 'destructive' });
+      } catch (error) {
+          toast({
+            title: 'No pudimos añadir el enlace',
+            description: getFriendlyErrorMessage(error, 'Verifica la URL e inténtalo nuevamente.'),
+            variant: 'destructive'
+          });
       } finally {
         setIsAddingLink(false);
       }
@@ -80,8 +88,12 @@ export function CourseBibliography() {
         await apiDelete<{ success: boolean }>(`/api/bibliography/${item.id}`);
         toast({ title: 'Ítem Eliminado', description: `"${item.itemName}" ha sido eliminado de la bibliografía.` });
         await refreshCourses();
-    } catch (error: any) {
-        toast({ title: 'Error al Eliminar', description: error.message, variant: 'destructive' });
+    } catch (error) {
+        toast({
+          title: 'No pudimos eliminar el recurso',
+          description: getFriendlyErrorMessage(error, 'Inténtalo nuevamente en unos segundos.'),
+          variant: 'destructive'
+        });
     } finally {
         setIsDeleting(null);
     }
@@ -136,8 +148,8 @@ export function CourseBibliography() {
         {activeCourse.bibliography && activeCourse.bibliography.length > 0 ? (
           <ul className="space-y-3 pt-4 border-t">
             {activeCourse.bibliography.map((item) => (
-              <li key={item.id} className="flex items-center justify-between rounded-xl border bg-background p-3">
-                <div className="flex items-center gap-3 overflow-hidden">
+              <li key={item.id} className="flex flex-col gap-3 rounded-xl border bg-background p-3 sm:flex-row sm:items-center sm:justify-between">
+                <div className="flex items-center gap-3 overflow-hidden min-w-0">
                     {item.itemType === 'file' ? (
                         <FileText className="h-6 w-6 text-primary shrink-0" />
                     ) : (
@@ -145,7 +157,7 @@ export function CourseBibliography() {
                     )}
                   <span className="font-medium text-sm truncate" title={item.itemName}>{item.itemName}</span>
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="flex w-full items-center justify-end gap-2 sm:w-auto">
                     <Button
                         variant="ghost"
                         size="icon"

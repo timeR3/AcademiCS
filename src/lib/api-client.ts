@@ -8,6 +8,109 @@ export class ApiError extends Error {
   }
 }
 
+const technicalErrorByFriendlyMessage = new Map<string, string>();
+const TECHNICAL_ERROR_REGISTRY_LIMIT = 80;
+
+function normalizeMessage(input: unknown): string {
+  return typeof input === 'string' ? input.trim() : '';
+}
+
+function isTechnicalMessage(message: string): boolean {
+  const technicalMarkers = [
+    '<!doctype',
+    '<html',
+    'stack',
+    'syntaxerror',
+    'unexpected token',
+    'cannot ',
+    'failed to fetch',
+    'networkerror',
+    'econn',
+    'sql',
+  ];
+  const lower = message.toLowerCase();
+  return technicalMarkers.some((marker) => lower.includes(marker));
+}
+
+function statusFallback(status: number, fallback: string): string {
+  if (status === 400) return 'No pudimos procesar tu solicitud. Revisa los datos e inténtalo nuevamente.';
+  if (status === 401) return 'No pudimos iniciar sesión. Verifica tu correo y contraseña.';
+  if (status === 403) return 'No tienes permisos para realizar esta acción.';
+  if (status === 404) return 'No encontramos la información solicitada. Inténtalo de nuevo en unos minutos.';
+  if (status === 409) return 'Ya existe un registro con esos datos. Revisa la información e inténtalo nuevamente.';
+  if (status === 422) return 'Hay campos por corregir antes de continuar.';
+  if (status === 429) return 'Hay muchas solicitudes en este momento. Espera un momento e inténtalo de nuevo.';
+  if (status >= 500) return 'Tuvimos un problema interno. Ya estamos trabajando en ello; inténtalo nuevamente en unos minutos.';
+  return fallback;
+}
+
+function compactTechnicalDetails(input: string): string {
+  const normalized = input.replace(/\s+/g, ' ').trim();
+  if (normalized.length <= 1400) return normalized;
+  return `${normalized.slice(0, 1400)}...`;
+}
+
+function registerTechnicalErrorDetails(friendlyMessage: string, technicalDetails: string | null): void {
+  if (!technicalDetails) return;
+  const friendly = normalizeMessage(friendlyMessage);
+  if (!friendly) return;
+  const details = compactTechnicalDetails(technicalDetails);
+  if (!details || details === friendly) return;
+  technicalErrorByFriendlyMessage.set(friendly, details);
+  if (technicalErrorByFriendlyMessage.size > TECHNICAL_ERROR_REGISTRY_LIMIT) {
+    const oldestKey = technicalErrorByFriendlyMessage.keys().next().value as string | undefined;
+    if (oldestKey) {
+      technicalErrorByFriendlyMessage.delete(oldestKey);
+    }
+  }
+}
+
+function buildTechnicalErrorDetails(error: unknown): string | null {
+  if (error instanceof ApiError) {
+    const apiMessage = normalizeMessage(error.message);
+    return apiMessage ? `HTTP ${error.status}: ${apiMessage}` : `HTTP ${error.status}`;
+  }
+  if (error instanceof Error) {
+    const normalized = normalizeMessage(error.message);
+    return normalized || null;
+  }
+  return null;
+}
+
+export function getTechnicalDetailsForFriendlyMessage(message: string): string | undefined {
+  return technicalErrorByFriendlyMessage.get(normalizeMessage(message));
+}
+
+export function getFriendlyErrorMessage(error: unknown, fallback = 'No pudimos completar la acción. Inténtalo nuevamente.'): string {
+  const technicalDetails = buildTechnicalErrorDetails(error);
+  if (error instanceof ApiError) {
+    const apiMessage = normalizeMessage(error.message);
+    if (apiMessage && !isTechnicalMessage(apiMessage)) {
+      registerTechnicalErrorDetails(apiMessage, technicalDetails);
+      return apiMessage;
+    }
+    const friendly = statusFallback(error.status, fallback);
+    registerTechnicalErrorDetails(friendly, technicalDetails);
+    return friendly;
+  }
+  if (error instanceof Error) {
+    const normalized = normalizeMessage(error.message);
+    if (!normalized) {
+      registerTechnicalErrorDetails(fallback, technicalDetails);
+      return fallback;
+    }
+    if (isTechnicalMessage(normalized)) {
+      const friendly = 'No pudimos conectarnos con el servidor. Revisa tu conexión e inténtalo de nuevo.';
+      registerTechnicalErrorDetails(friendly, technicalDetails);
+      return friendly;
+    }
+    registerTechnicalErrorDetails(normalized, technicalDetails);
+    return normalized;
+  }
+  registerTechnicalErrorDetails(fallback, technicalDetails);
+  return fallback;
+}
+
 type ApiResponse<T> = {
   data?: T;
   error?: string;

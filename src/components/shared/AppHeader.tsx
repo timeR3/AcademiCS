@@ -170,14 +170,14 @@ export function AppHeader() {
             <h1 className="text-lg md:text-xl font-bold font-headline text-primary hidden sm:block">AcademiCS</h1>
         </div>
       </div>
-      <div className="flex items-center gap-1.5 sm:gap-2 md:gap-4">
+        <div className="flex items-center gap-1 sm:gap-2 md:gap-4 min-w-0">
          {user?.roles.includes('admin') && (
-            <div className="hidden sm:flex items-center gap-2 text-sm font-semibold text-primary">
+            <div className="hidden lg:flex items-center gap-2 text-sm font-semibold text-primary">
                 <ShieldCheck className="h-5 w-5" />
                 <span>Modo Administrador</span>
             </div>
         )}
-        <span className="hidden text-sm text-muted-foreground sm:inline">Bienvenido, {user?.name?.split(' ')[0]}</span>
+        <span className="hidden text-sm text-muted-foreground md:inline">Bienvenido, {user?.name?.split(' ')[0]}</span>
         <ThemeToggle />
         <NotificationBell />
 

@@ -21,7 +21,7 @@ export function CourseContentSidebar({ levels, activeSectionId, onSelectSection 
     const defaultOpenLevel = levels.find(l => l.status === 'in-progress')?.id || levels[0]?.id || '';
     
     return (
-        <ScrollArea className="h-full max-h-[75vh] pr-4">
+        <ScrollArea className="h-full max-h-[75vh] pr-0 sm:pr-4">
              <Accordion type="single" collapsible defaultValue={defaultOpenLevel} className="w-full">
                 {levels.map(level => {
                     const config = statusConfig[level.status];

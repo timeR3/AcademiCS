@@ -10,7 +10,7 @@ import { Loader2, Sparkles, UploadCloud, File as FileIcon, X, RotateCcw, Ban, Ch
 import { Input } from '../ui/input';
 import { Progress } from '../ui/progress';
 import type { CourseSourceFile } from '@/types';
-import { apiPost } from '@/lib/api-client';
+import { apiPost, getFriendlyErrorMessage } from '@/lib/api-client';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
 import { Switch } from '../ui/switch';
 
@@ -145,12 +145,13 @@ export function SyllabusGenerator({ onSyllabusIndexGenerated, hasGeneratedConten
           status === 'cached' ? 'Completado: ya lo tenías procesado' : 'Completado: contenido listo para tu curso',
           { hash, dataUri, lastError: undefined }
         );
-      } catch (error: any) {
-        console.error(`Failed to transcribe ${pendingFile.file.name}:`, error);
-        const errorMessage = typeof error?.message === 'string' && error.message.trim() !== ''
-          ? error.message
-          : 'Error desconocido al procesar el archivo.';
-        toast({ title: 'Error de Transcripción', description: `No se pudo procesar ${pendingFile.file.name}. ${errorMessage}`, variant: 'destructive'});
+      } catch (error) {
+        const errorMessage = getFriendlyErrorMessage(error, 'No pudimos procesar este archivo. Inténtalo nuevamente.');
+        toast({
+          title: 'No pudimos procesar el archivo',
+          description: `${pendingFile.file.name}: ${errorMessage}`,
+          variant: 'destructive'
+        });
         updateFileProgress(
           pendingFile.file.name,
           'failed',
@@ -198,9 +199,10 @@ export function SyllabusGenerator({ onSyllabusIndexGenerated, hasGeneratedConten
       onSyllabusIndexGenerated(result);
       setGenerationStatusMessage(null);
 
-    } catch (error: any) {
-        toast({ title: 'Falló la Generación', description: `No se pudo generar el índice de módulos. ${error.message}`, variant: 'destructive' });
-        setGenerationStatusMessage(`Error: ${error.message}`);
+    } catch (error) {
+        const message = getFriendlyErrorMessage(error, 'No pudimos generar el índice de módulos. Inténtalo nuevamente.');
+        toast({ title: 'No pudimos generar el índice de módulos', description: message, variant: 'destructive' });
+        setGenerationStatusMessage(`Error: ${message}`);
     } finally {
       setIsGenerating(false);
       generationController.current = null;
@@ -327,16 +329,16 @@ export function SyllabusGenerator({ onSyllabusIndexGenerated, hasGeneratedConten
                 <p className="font-medium text-sm">Archivos cargados</p>
                 <ul className="max-h-56 space-y-2 overflow-y-auto pr-1">
                   {fileStates.map((fs, index) => (
-                    <li key={index} className="flex items-center justify-between rounded-xl border bg-secondary/50 px-3 py-2">
-                      <div className="flex flex-1 items-center gap-2 overflow-hidden">
+                    <li key={index} className="flex flex-col gap-3 rounded-xl border bg-secondary/50 px-3 py-2 sm:flex-row sm:items-center sm:justify-between">
+                      <div className="flex min-w-0 flex-1 items-center gap-2 overflow-hidden">
                         {getStatusIcon(fs.status)}
-                        <div className="flex flex-col overflow-hidden">
+                        <div className="flex min-w-0 flex-col overflow-hidden">
                           <span className="text-sm font-medium truncate" title={fs.file.name}>{fs.file.name}</span>
                           <div className="text-xs flex items-center gap-x-2">
                             {getStatusText(fs.status)}
                           </div>
                           {fs.status !== 'completed' && (
-                          <div className="mt-2 w-full min-w-[220px]">
+                          <div className="mt-2 w-full min-w-0">
                             <Progress value={getProgressValue(fs.status, fs.progressStep)} className="h-2" />
                             <p className="mt-1 text-[11px] text-muted-foreground truncate">
                               {fs.progressLabel}
@@ -350,7 +352,7 @@ export function SyllabusGenerator({ onSyllabusIndexGenerated, hasGeneratedConten
                           )}
                         </div>
                       </div>
-                      <Button variant="ghost" size="icon" className="h-6 w-6 shrink-0" onClick={() => removeFile(fs.file.name)} disabled={isLocked || isLoading || isProcessingFiles}>
+                      <Button variant="ghost" size="icon" className="h-6 w-6 shrink-0 self-end sm:self-auto" onClick={() => removeFile(fs.file.name)} disabled={isLocked || isLoading || isProcessingFiles}>
                         <X className="h-4 w-4" />
                       </Button>
                     </li>
@@ -362,10 +364,10 @@ export function SyllabusGenerator({ onSyllabusIndexGenerated, hasGeneratedConten
                 <p className="font-medium text-sm">Fuentes de Origen Guardadas</p>
                 <ul className="space-y-2">
                   {initialSourceFiles.map((file) => (
-                    <li key={file.id} className="flex items-center justify-between rounded-xl border bg-secondary/50 p-2">
-                      <div className="flex items-center gap-2">
+                    <li key={file.id} className="flex flex-col gap-3 rounded-xl border bg-secondary/50 p-2 sm:flex-row sm:items-center sm:justify-between">
+                      <div className="flex min-w-0 items-center gap-2">
                         <FileIcon className="h-5 w-5 text-primary shrink-0" />
-                        <div className="flex flex-col overflow-hidden">
+                        <div className="flex min-w-0 flex-col overflow-hidden">
                           <span className="text-sm truncate">{file.fileName}</span>
                         </div>
                       </div>

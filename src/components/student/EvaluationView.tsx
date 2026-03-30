@@ -160,14 +160,14 @@ export function EvaluationView({ level, courseId, onFinish, onBack }: Evaluation
               ))}
             </RadioGroup>
           </CardContent>
-          <CardFooter className="justify-between border-t pt-6">
-            <Button variant="outline" onClick={handlePrevious} disabled={currentQuestionIndex === 0 || isLoading}>
+          <CardFooter className="flex flex-col-reverse gap-3 border-t pt-6 sm:flex-row sm:items-center sm:justify-between">
+            <Button variant="outline" onClick={handlePrevious} disabled={currentQuestionIndex === 0 || isLoading} className="w-full sm:w-auto">
                 <ArrowLeft className="mr-2 h-4 w-4"/> Anterior
             </Button>
             {currentQuestionIndex < questions.length - 1 ? (
-              <Button onClick={handleNext}>Siguiente <ArrowRight className="ml-2 h-4 w-4"/></Button>
+              <Button onClick={handleNext} className="w-full sm:w-auto">Siguiente <ArrowRight className="ml-2 h-4 w-4"/></Button>
             ) : (
-              <Button onClick={handleSubmit} disabled={isLoading}>
+              <Button onClick={handleSubmit} disabled={isLoading} className="w-full sm:w-auto">
                 {isLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : <Flag className="mr-2 h-4 w-4"/>} Finalizar Evaluación
               </Button>
             )}

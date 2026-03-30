@@ -16,7 +16,7 @@ import { Badge } from '../ui/badge';
 import { Switch } from '../ui/switch';
 import { buttonVariants } from '../ui/button';
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '../ui/select';
-import { apiDelete, apiGet, apiPatch } from '@/lib/api-client';
+import { apiDelete, apiGet, apiPatch, getFriendlyErrorMessage } from '@/lib/api-client';
 
 export function AIConfigView() {
     const [isApiKeySet, setIsApiKeySet] = useState(false);
@@ -124,8 +124,12 @@ export function AIConfigView() {
             await apiPatch<{ success: boolean }>('/api/app-settings', settingsToSave);
             toast({ title: "Configuración Guardada", description: "El modelo de IA y las funcionalidades han sido actualizados." });
             loadAllSettings();
-        } catch (error: any) {
-            toast({ title: "Error al Guardar", description: `No se pudo guardar la configuración: ${error.message}`, variant: "destructive" });
+        } catch (error) {
+            toast({
+                title: "No pudimos guardar la configuración",
+                description: getFriendlyErrorMessage(error, "Inténtalo nuevamente en unos segundos."),
+                variant: "destructive"
+            });
         } finally {
             setSavingStates(s => ({ ...s, general: false }));
         }
@@ -141,8 +145,12 @@ export function AIConfigView() {
             await apiPatch<{ success: boolean }>('/api/app-settings', { adminSyllabusPrompt: syllabusPrompt });
             toast({ title: "Prompt Guardado", description: "El prompt para generar temarios ha sido actualizado." });
             loadAllSettings();
-        } catch (error: any) {
-            toast({ title: "Error al Guardar", description: `No se pudo guardar el prompt: ${error.message}`, variant: "destructive" });
+        } catch (error) {
+            toast({
+                title: "No pudimos guardar el prompt",
+                description: getFriendlyErrorMessage(error, "Revisa el contenido e inténtalo nuevamente."),
+                variant: "destructive"
+            });
         } finally {
             setSavingStates(s => ({ ...s, syllabus: false }));
         }
@@ -158,8 +166,12 @@ export function AIConfigView() {
             await apiPatch<{ success: boolean }>('/api/app-settings', { adminQuestionnairePrompt: questionnairePrompt });
             toast({ title: "Prompt Guardado", description: "El prompt para generar cuestionarios ha sido actualizado." });
             loadAllSettings();
-        } catch (error: any) {
-            toast({ title: "Error al Guardar", description: `No se pudo guardar el prompt: ${error.message}`, variant: "destructive" });
+        } catch (error) {
+            toast({
+                title: "No pudimos guardar el prompt",
+                description: getFriendlyErrorMessage(error, "Revisa el contenido e inténtalo nuevamente."),
+                variant: "destructive"
+            });
         } finally {
             setSavingStates(s => ({ ...s, questionnaire: false }));
         }
@@ -190,10 +202,10 @@ export function AIConfigView() {
                 description: 'El prompt ha sido eliminado del historial.',
             });
             setPromptHistory(prev => prev.filter(p => p.id !== promptToDelete.id));
-        } catch (error: any) {
+        } catch (error) {
             toast({
-                title: 'Error al Eliminar',
-                description: error.message,
+                title: 'No pudimos eliminar el prompt',
+                description: getFriendlyErrorMessage(error, 'Inténtalo de nuevo en unos momentos.'),
                 variant: 'destructive',
             });
         } finally {
@@ -298,14 +310,14 @@ export function AIConfigView() {
                 </CardHeader>
                 <CardContent className="flex-grow">
                 {loadingSettings ? <p>Cargando...</p> : (
-                    <div className="flex items-center space-x-2 rounded-xl border p-4">
+                    <div className="flex flex-col items-start gap-3 rounded-xl border p-4 sm:flex-row sm:items-center sm:gap-2">
                     <Switch
                         id="youtube-generation"
                         checked={enableYoutube}
                         onCheckedChange={setEnableYoutube}
                         disabled={isSaving}
                     />
-                    <Label htmlFor="youtube-generation" className="flex-1">Habilitar generación de cursos desde YouTube</Label>
+                    <Label htmlFor="youtube-generation" className="flex-1 leading-snug">Habilitar generación de cursos desde YouTube</Label>
                     </div>
                 )}
                 </CardContent>
@@ -369,7 +381,7 @@ export function AIConfigView() {
                 </CardHeader>
                 <CardContent>
                     {loadingSettings ? <p>Cargando historial...</p> : (
-                        <ScrollArea className="h-[400px]">
+                        <ScrollArea className="h-[55vh] max-h-[400px]">
                             <div className="overflow-x-auto">
                                 <Table>
                                     <TableHeader>

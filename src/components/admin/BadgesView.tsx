@@ -10,7 +10,7 @@ import { BadgeIcon } from '../student/BadgeIcon';
 import { BadgeDialog } from './BadgeDialog';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '../ui/alert-dialog';
 import { buttonVariants } from '../ui/button';
-import { apiDelete, apiGet } from '@/lib/api-client';
+import { apiDelete, apiGet, getFriendlyErrorMessage } from '@/lib/api-client';
 
 const criteriaText: Record<Badge['criteriaType'], string> = {
     'SCORE': 'Puntuación Mínima',
@@ -38,8 +38,12 @@ export function BadgesView() {
         try {
             const fetchedBadges = await apiGet<Badge[]>('/api/badges');
             setBadges(fetchedBadges);
-        } catch (error: any) {
-            toast({ title: "Error", description: `No se pudieron cargar las insignias: ${error.message}`, variant: "destructive" });
+        } catch (error) {
+            toast({
+                title: "No pudimos cargar las insignias",
+                description: getFriendlyErrorMessage(error, "Inténtalo nuevamente en unos segundos."),
+                variant: "destructive"
+            });
         } finally {
             setIsLoading(false);
         }
@@ -74,10 +78,10 @@ export function BadgesView() {
                 description: `La insignia "${badgeToDelete.name}" ha sido eliminada.`,
             });
             setBadges(prev => prev.filter(b => b.id !== badgeToDelete.id));
-        } catch (error: any) {
+        } catch (error) {
              toast({
-                title: 'Error al Eliminar',
-                description: error.message,
+                title: 'No pudimos eliminar la insignia',
+                description: getFriendlyErrorMessage(error, 'Inténtalo nuevamente en unos segundos.'),
                 variant: 'destructive',
             });
         } finally {
