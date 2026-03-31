@@ -1,0 +1,10 @@
+{
+    "name": "academycs/backend",
+    "description": "Backend tests for AcademiCS",
+    "require-dev": {
+        "phpunit/phpunit": "^11.0"
+    },
+    "autoload": {
+        "files": ["public/index.php"]
+    }
+}

@@ -173,6 +173,18 @@ export function CourseProvider({ children }: { children: ReactNode }) {
       setActiveCourseIdState(null); // Deselect active course on role change
       teacherLookupLoadedRef.current = false;
       adminLookupLoadedRef.current = false;
+
+      // Add a small helper for E2E tests to switch views
+      if (typeof window !== 'undefined') {
+        const handler = (e: any) => {
+           if (e.detail === 'courses') setAdminView('courses');
+           if (e.detail === 'users') setAdminView('users');
+           if (e.detail === 'settings') setAdminView('settings');
+           if (e.detail === 'analytics') setAdminView('analytics');
+        };
+        window.addEventListener('set-admin-view' as any, handler);
+        return () => window.removeEventListener('set-admin-view' as any, handler);
+      }
   }, [activeRole]);
 
 

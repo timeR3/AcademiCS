@@ -14,6 +14,7 @@ function loadDotEnvFiles(): void {
     $files = [
         $rootDir . DIRECTORY_SEPARATOR . '.env',
         $rootDir . DIRECTORY_SEPARATOR . '.env.local',
+        $rootDir . DIRECTORY_SEPARATOR . '.env.test',
     ];
     foreach ($files as $file) {
         if (!is_file($file) || !is_readable($file)) {
@@ -42,7 +43,7 @@ function loadDotEnvFiles(): void {
             if (($first === '"' && $last === '"') || ($first === "'" && $last === "'")) {
                 $value = substr($value, 1, -1);
             }
-            if (getenv($key) === false) {
+            if (getenv($key) === false || getenv('APP_ENV') === 'testing') {
                 putenv($key . '=' . $value);
                 $_ENV[$key] = $value;
                 $_SERVER[$key] = $value;
@@ -92,6 +93,7 @@ function corsAllowedOrigins(): array {
 }
 
 function applyCors(): void {
+    if (PHP_SAPI === 'cli') return;
     $allowed = corsAllowedOrigins();
     $origin = $_SERVER['HTTP_ORIGIN'] ?? '';
     if ($origin === '' || count($allowed) === 0 || in_array($origin, $allowed, true)) {
@@ -104,6 +106,10 @@ function applyCors(): void {
 }
 
 function jsonResponse(int $status, array $payload): void {
+    if (defined('PHPUNIT_RUNNING')) {
+        echo json_encode($payload);
+        return;
+    }
     http_response_code($status);
     header('Content-Type: application/json; charset=utf-8');
     $flags = JSON_UNESCAPED_UNICODE;
@@ -1495,35 +1501,37 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'OPTIONS') {
     exit;
 }
 
-$path = routePath();
-$method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
-$startedAt = gmdate('c');
-$mountedRoutes = countApiRoutes();
-$isReady = true;
-require_once dirname(__DIR__) . DIRECTORY_SEPARATOR . 'routes' . DIRECTORY_SEPARATOR . 'auth-users-categories.php';
-require_once dirname(__DIR__) . DIRECTORY_SEPARATOR . 'routes' . DIRECTORY_SEPARATOR . 'platform-routes.php';
+if (PHP_SAPI !== 'cli') {
+    $path = routePath();
+    $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
+    $startedAt = gmdate('c');
+    $mountedRoutes = countApiRoutes();
+    $isReady = true;
+    require_once dirname(__DIR__) . DIRECTORY_SEPARATOR . 'routes' . DIRECTORY_SEPARATOR . 'auth-users-categories.php';
+    require_once dirname(__DIR__) . DIRECTORY_SEPARATOR . 'routes' . DIRECTORY_SEPARATOR . 'platform-routes.php';
 
-try {
-    if ($method === 'GET' && $path === '/health') {
-        jsonResponse(200, ['status' => 'ok', 'ready' => $isReady, 'routes' => $mountedRoutes, 'startedAt' => $startedAt]);
-    }
-
-    if ($method === 'GET' && $path === '/health/ready') {
-        jsonResponse(200, ['status' => 'ready', 'ready' => $isReady, 'routes' => $mountedRoutes, 'startedAt' => $startedAt]);
-    }
-
-    handleAuthUserCategoryRoutes($method, $path);
-    handlePlatformRoutes($method, $path);
-
-    if (str_starts_with($path, '/api')) {
-        $allowedMethods = allowedMethodsForApiPath($path);
-        if (count($allowedMethods) > 0 && !in_array($method, $allowedMethods, true)) {
-            jsonResponse(405, ['error' => 'Método no permitido.']);
+    try {
+        if ($method === 'GET' && $path === '/health') {
+            jsonResponse(200, ['status' => 'ok', 'ready' => $isReady, 'routes' => $mountedRoutes, 'startedAt' => $startedAt]);
         }
-    }
 
-    jsonResponse(404, ['error' => 'Endpoint no encontrado.']);
-} catch (Throwable $error) {
-    $message = $error->getMessage() !== '' ? $error->getMessage() : 'Error interno del servidor.';
-    jsonResponse(500, ['error' => $message]);
+        if ($method === 'GET' && $path === '/health/ready') {
+            jsonResponse(200, ['status' => 'ready', 'ready' => $isReady, 'routes' => $mountedRoutes, 'startedAt' => $startedAt]);
+        }
+
+        handleAuthUserCategoryRoutes($method, $path);
+        handlePlatformRoutes($method, $path);
+
+        if (str_starts_with($path, '/api')) {
+            $allowedMethods = allowedMethodsForApiPath($path);
+            if (count($allowedMethods) > 0 && !in_array($method, $allowedMethods, true)) {
+                jsonResponse(405, ['error' => 'Método no permitido.']);
+            }
+        }
+
+        jsonResponse(404, ['error' => 'Endpoint no encontrado.']);
+    } catch (Throwable $error) {
+        $message = $error->getMessage() !== '' ? $error->getMessage() : 'Error interno del servidor.';
+        jsonResponse(500, ['error' => $message]);
+    }
 }

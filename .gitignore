@@ -8,3 +8,8 @@ coverage/
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+backend-php/vendor/
+npm_dev.log
+playwright-report/
+test-results/
+.phpunit.result.cache
