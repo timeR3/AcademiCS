@@ -9,24 +9,37 @@ import { Badge } from '../ui/badge';
 import { ScrollArea } from '../ui/scroll-area';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '../ui/dialog';
 import { Button } from '../ui/button';
-import { Search, Tag, Users, Star, Loader2 } from 'lucide-react';
+import { Search, Tag, Users, Star, Loader2, ArrowUpDown, ArrowUp, ArrowDown, Trash2 } from 'lucide-react';
 import { useCourse } from '@/context/CourseContext';
 import { Progress } from '../ui/progress';
 import { Separator } from '../ui/separator';
 import { format, isValid, parseISO } from 'date-fns';
 import { es } from 'date-fns/locale';
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '../ui/accordion';
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '../ui/alert-dialog';
+import { buttonVariants } from '../ui/button';
+import { useToast } from '@/hooks/use-toast';
+import { apiDelete, getFriendlyErrorMessage } from '@/lib/api-client';
 
 interface CoursesViewProps {
     onPrefetchCourse: (course: Course) => Promise<void>;
 }
 
+type StudentSortKey = 'name' | 'progress' | 'dueDate' | 'finalScore';
+type SortDirection = 'asc' | 'desc';
+
 export function CoursesView({ onPrefetchCourse }: CoursesViewProps) {
-    const { courses, archivedCourses, allUsers } = useCourse();
+    const { courses, archivedCourses, allUsers, refreshCourses } = useCourse();
+    const { toast } = useToast();
     const [allCourses, setAllCourses] = useState<Course[]>([]);
     const [searchTerm, setSearchTerm] = useState('');
     const [loading, setLoading] = useState(true);
     const [selectedCourseId, setSelectedCourseId] = useState<string | null>(null);
     const [isLoadingDetails, setIsLoadingDetails] = useState(false);
+    const [isDeletingCourse, setIsDeletingCourse] = useState(false);
+    const [courseToDelete, setCourseToDelete] = useState<Course | null>(null);
+    const [studentSortKey, setStudentSortKey] = useState<StudentSortKey>('name');
+    const [studentSortDirection, setStudentSortDirection] = useState<SortDirection>('asc');
 
     useEffect(() => {
         const combined = [...courses, ...archivedCourses];
@@ -81,6 +94,54 @@ export function CoursesView({ onPrefetchCourse }: CoursesViewProps) {
         });
     }, [selectedCourse, allUsers]);
 
+    const sortedStudentRows = useMemo<StudentProgress[]>(() => {
+        const rows = [...studentRows];
+        rows.sort((a, b) => {
+            if (studentSortKey === 'name') {
+                const result = a.name.localeCompare(b.name, 'es', { sensitivity: 'base' });
+                return studentSortDirection === 'asc' ? result : -result;
+            }
+            if (studentSortKey === 'progress') {
+                const progressA = a.totalModulesCount > 0 ? (a.completedModulesCount / a.totalModulesCount) * 100 : 0;
+                const progressB = b.totalModulesCount > 0 ? (b.completedModulesCount / b.totalModulesCount) * 100 : 0;
+                return studentSortDirection === 'asc' ? progressA - progressB : progressB - progressA;
+            }
+            if (studentSortKey === 'dueDate') {
+                const dueA = a.dueDate ? parseISO(a.dueDate).getTime() : null;
+                const dueB = b.dueDate ? parseISO(b.dueDate).getTime() : null;
+                if (dueA === null && dueB === null) return 0;
+                if (dueA === null) return 1;
+                if (dueB === null) return -1;
+                return studentSortDirection === 'asc' ? dueA - dueB : dueB - dueA;
+            }
+            const scoreA = typeof a.finalScore === 'number' ? a.finalScore : null;
+            const scoreB = typeof b.finalScore === 'number' ? b.finalScore : null;
+            if (scoreA === null && scoreB === null) return 0;
+            if (scoreA === null) return 1;
+            if (scoreB === null) return -1;
+            return studentSortDirection === 'asc' ? scoreA - scoreB : scoreB - scoreA;
+        });
+        return rows;
+    }, [studentRows, studentSortDirection, studentSortKey]);
+
+    const toggleStudentSort = (key: StudentSortKey) => {
+        if (studentSortKey === key) {
+            setStudentSortDirection(prev => (prev === 'asc' ? 'desc' : 'asc'));
+            return;
+        }
+        setStudentSortKey(key);
+        setStudentSortDirection('desc');
+    };
+
+    const SortIcon = ({ keyName }: { keyName: StudentSortKey }) => {
+        if (studentSortKey !== keyName) {
+            return <ArrowUpDown className="h-3.5 w-3.5" />;
+        }
+        return studentSortDirection === 'asc'
+            ? <ArrowUp className="h-3.5 w-3.5" />
+            : <ArrowDown className="h-3.5 w-3.5" />;
+    };
+
     const handleOpenCourse = async (course: Course) => {
         setSelectedCourseId(course.id);
         setIsLoadingDetails(true);
@@ -106,6 +167,33 @@ export function CoursesView({ onPrefetchCourse }: CoursesViewProps) {
     const formatUsd = (value: number | undefined) =>
         new Intl.NumberFormat('es-ES', { style: 'currency', currency: 'USD', minimumFractionDigits: 4, maximumFractionDigits: 6 }).format(value ?? 0);
 
+    const handleDeleteCourse = async () => {
+        if (!courseToDelete) {
+            return;
+        }
+        setIsDeletingCourse(true);
+        try {
+            await apiDelete<{ success: boolean }>(`/api/courses/${encodeURIComponent(courseToDelete.id)}`);
+            toast({
+                title: 'Curso eliminado',
+                description: `El curso "${courseToDelete.title}" fue eliminado correctamente.`,
+            });
+            if (selectedCourseId === courseToDelete.id) {
+                handleCloseDialog();
+            }
+            setCourseToDelete(null);
+            await refreshCourses();
+        } catch (error) {
+            toast({
+                title: 'No pudimos eliminar el curso',
+                description: getFriendlyErrorMessage(error, 'Inténtalo nuevamente en unos segundos.'),
+                variant: 'destructive',
+            });
+        } finally {
+            setIsDeletingCourse(false);
+        }
+    };
+
     return (
         <>
             <Card className="premium-surface h-full flex flex-col">
@@ -126,7 +214,7 @@ export function CoursesView({ onPrefetchCourse }: CoursesViewProps) {
                     <div className="flex-grow overflow-hidden rounded-xl border">
                         <ScrollArea className="h-full">
                             <div className="overflow-x-auto">
-                            <Table className="min-w-[560px]">
+                            <Table className="min-w-[640px]">
                                 <TableHeader>
                                     <TableRow>
                                         <TableHead>Título del Curso</TableHead>
@@ -135,11 +223,12 @@ export function CoursesView({ onPrefetchCourse }: CoursesViewProps) {
                                         <TableHead className="hidden xl:table-cell">Uso IA</TableHead>
                                         <TableHead className="text-center">Inscritos</TableHead>
                                         <TableHead className="text-center">Estado</TableHead>
+                                        <TableHead className="text-right">Acciones</TableHead>
                                     </TableRow>
                                 </TableHeader>
                                 <TableBody>
                                     {loading ? (
-                                        <TableRow><TableCell colSpan={6} className="text-center h-24">Cargando cursos...</TableCell></TableRow>
+                                        <TableRow><TableCell colSpan={7} className="text-center h-24">Cargando cursos...</TableCell></TableRow>
                                     ) : filteredCourses.length > 0 ? (
                                         filteredCourses.map(course => {
                                             const teacher = getTeacherForCourse(course.teacherId);
@@ -171,11 +260,26 @@ export function CoursesView({ onPrefetchCourse }: CoursesViewProps) {
                                                             {course.status === 'active' ? 'Activo' : course.status}
                                                         </Badge>
                                                     </TableCell>
+                                                    <TableCell className="text-right">
+                                                        <Button
+                                                            type="button"
+                                                            variant="destructive"
+                                                            size="sm"
+                                                            className="h-8"
+                                                            onClick={(event) => {
+                                                                event.stopPropagation();
+                                                                setCourseToDelete(course);
+                                                            }}
+                                                        >
+                                                            <Trash2 className="h-4 w-4" />
+                                                            Eliminar
+                                                        </Button>
+                                                    </TableCell>
                                                 </TableRow>
                                             );
                                         })
                                     ) : (
-                                        <TableRow><TableCell colSpan={6} className="text-center h-24">No se encontraron cursos.</TableCell></TableRow>
+                                        <TableRow><TableCell colSpan={7} className="text-center h-24">No se encontraron cursos.</TableCell></TableRow>
                                     )}
                                 </TableBody>
                             </Table>
@@ -199,31 +303,35 @@ export function CoursesView({ onPrefetchCourse }: CoursesViewProps) {
                         <div className="flex items-center gap-2"><strong>Estado:</strong> <Badge variant={selectedCourse?.status === 'active' ? 'secondary' : 'outline'} className="capitalize">{selectedCourse?.status}</Badge></div>
                     </div>
                      <Separator />
-                     <div className="space-y-3">
-                        <h3 className="font-semibold">Uso de IA</h3>
-                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-                            <div className="rounded-2xl border bg-card p-3">
-                                <p className="text-xs text-muted-foreground">Costo estimado</p>
-                                <p className="text-lg font-semibold">{formatUsd(selectedCourse?.aiMetrics?.estimatedCostUsd)}</p>
-                            </div>
-                            <div className="rounded-2xl border bg-card p-3">
-                                <p className="text-xs text-muted-foreground">Tokens totales</p>
-                                <p className="text-lg font-semibold">{formatTokens(selectedCourse?.aiMetrics?.totalTokens)}</p>
-                            </div>
-                            <div className="rounded-2xl border bg-card p-3">
-                                <p className="text-xs text-muted-foreground">Intentos de generación</p>
-                                <p className="text-lg font-semibold">{selectedCourse?.aiMetrics?.generationAttempts ?? 0}</p>
-                                <p className="text-xs text-muted-foreground">
-                                    Índice {selectedCourse?.aiMetrics?.syllabusIndexAttempts ?? 0} · Módulos {selectedCourse?.aiMetrics?.syllabusModuleAttempts ?? 0} · Cuestionarios {selectedCourse?.aiMetrics?.questionnaireAttempts ?? 0}
-                                </p>
-                            </div>
-                            <div className="rounded-2xl border bg-card p-3">
-                                <p className="text-xs text-muted-foreground">Archivos</p>
-                                <p className="text-lg font-semibold">{selectedCourse?.aiMetrics?.fileUploadSuccesses ?? 0} / {selectedCourse?.aiMetrics?.fileUploadAttempts ?? 0}</p>
-                                <p className="text-xs text-muted-foreground">Subidos / intentos</p>
-                            </div>
-                        </div>
-                     </div>
+                     <Accordion type="single" collapsible className="w-full">
+                        <AccordionItem value="uso-ia" className="border rounded-2xl px-4">
+                            <AccordionTrigger className="text-base font-semibold hover:no-underline">Uso de IA</AccordionTrigger>
+                            <AccordionContent>
+                                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                                    <div className="rounded-2xl border bg-card p-3">
+                                        <p className="text-xs text-muted-foreground">Costo estimado</p>
+                                        <p className="text-lg font-semibold">{formatUsd(selectedCourse?.aiMetrics?.estimatedCostUsd)}</p>
+                                    </div>
+                                    <div className="rounded-2xl border bg-card p-3">
+                                        <p className="text-xs text-muted-foreground">Tokens totales</p>
+                                        <p className="text-lg font-semibold">{formatTokens(selectedCourse?.aiMetrics?.totalTokens)}</p>
+                                    </div>
+                                    <div className="rounded-2xl border bg-card p-3">
+                                        <p className="text-xs text-muted-foreground">Intentos de generación</p>
+                                        <p className="text-lg font-semibold">{selectedCourse?.aiMetrics?.generationAttempts ?? 0}</p>
+                                        <p className="text-xs text-muted-foreground">
+                                            Índice {selectedCourse?.aiMetrics?.syllabusIndexAttempts ?? 0} · Módulos {selectedCourse?.aiMetrics?.syllabusModuleAttempts ?? 0} · Cuestionarios {selectedCourse?.aiMetrics?.questionnaireAttempts ?? 0}
+                                        </p>
+                                    </div>
+                                    <div className="rounded-2xl border bg-card p-3">
+                                        <p className="text-xs text-muted-foreground">Archivos</p>
+                                        <p className="text-lg font-semibold">{selectedCourse?.aiMetrics?.fileUploadSuccesses ?? 0} / {selectedCourse?.aiMetrics?.fileUploadAttempts ?? 0}</p>
+                                        <p className="text-xs text-muted-foreground">Subidos / intentos</p>
+                                    </div>
+                                </div>
+                            </AccordionContent>
+                        </AccordionItem>
+                     </Accordion>
                      <Separator />
                      <div className="space-y-3">
                         <h3 className="font-semibold flex items-center gap-2"><Users /> Progreso de Estudiantes ({selectedCourse?.students?.length || 0} inscritos)</h3>
@@ -232,10 +340,30 @@ export function CoursesView({ onPrefetchCourse }: CoursesViewProps) {
                              <Table className="min-w-[560px]">
                                 <TableHeader>
                                     <TableRow>
-                                        <TableHead>Estudiante</TableHead>
-                                        <TableHead>Progreso</TableHead>
-                                        <TableHead>Fecha de Vencimiento</TableHead>
-                                        <TableHead className="text-right">Calificación Final</TableHead>
+                                        <TableHead>
+                                            <Button type="button" variant="ghost" size="sm" className="h-auto p-0 font-semibold hover:bg-transparent" onClick={() => toggleStudentSort('name')}>
+                                                Estudiante
+                                                <SortIcon keyName="name" />
+                                            </Button>
+                                        </TableHead>
+                                        <TableHead>
+                                            <Button type="button" variant="ghost" size="sm" className="h-auto p-0 font-semibold hover:bg-transparent" onClick={() => toggleStudentSort('progress')}>
+                                                Progreso
+                                                <SortIcon keyName="progress" />
+                                            </Button>
+                                        </TableHead>
+                                        <TableHead>
+                                            <Button type="button" variant="ghost" size="sm" className="h-auto p-0 font-semibold hover:bg-transparent" onClick={() => toggleStudentSort('dueDate')}>
+                                                Fecha de Vencimiento
+                                                <SortIcon keyName="dueDate" />
+                                            </Button>
+                                        </TableHead>
+                                        <TableHead className="text-right">
+                                            <Button type="button" variant="ghost" size="sm" className="ml-auto h-auto p-0 font-semibold hover:bg-transparent" onClick={() => toggleStudentSort('finalScore')}>
+                                                Calificación Final
+                                                <SortIcon keyName="finalScore" />
+                                            </Button>
+                                        </TableHead>
                                     </TableRow>
                                 </TableHeader>
                                 <TableBody>
@@ -248,8 +376,8 @@ export function CoursesView({ onPrefetchCourse }: CoursesViewProps) {
                                                 </span>
                                             </TableCell>
                                         </TableRow>
-                                    ) : studentRows.length > 0 ? (
-                                        studentRows.map((student: StudentProgress) => {
+                                    ) : sortedStudentRows.length > 0 ? (
+                                        sortedStudentRows.map((student: StudentProgress) => {
                                             const progress = student.totalModulesCount > 0 ? (student.completedModulesCount / student.totalModulesCount) * 100 : 0;
                                             const formattedDueDate = formatDueDate(student.dueDate ?? null);
                                             return (
@@ -289,6 +417,30 @@ export function CoursesView({ onPrefetchCourse }: CoursesViewProps) {
                     </DialogFooter>
                 </DialogContent>
             </Dialog>
+            <AlertDialog open={!!courseToDelete} onOpenChange={(isOpen) => !isOpen && setCourseToDelete(null)}>
+                <AlertDialogContent>
+                    <AlertDialogHeader>
+                        <AlertDialogTitle>¿Deseas eliminar este curso?</AlertDialogTitle>
+                        <AlertDialogDescription>
+                            Esta acción eliminará el curso y sus datos asociados. No se puede deshacer.
+                            <blockquote className="mt-4 border-l-2 pl-4 italic">
+                                {courseToDelete?.title}
+                            </blockquote>
+                        </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                        <AlertDialogCancel disabled={isDeletingCourse}>Cancelar</AlertDialogCancel>
+                        <AlertDialogAction
+                            onClick={handleDeleteCourse}
+                            className={buttonVariants({ variant: 'destructive' })}
+                            disabled={isDeletingCourse}
+                        >
+                            {isDeletingCourse ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Trash2 className="mr-2 h-4 w-4" />}
+                            Sí, eliminar curso
+                        </AlertDialogAction>
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+            </AlertDialog>
         </>
     );
 }

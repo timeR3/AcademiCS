@@ -312,29 +312,6 @@ function handlePlatformCoursesRoutes(string $method, string $path): void {
         jsonResponse(201, ['data' => ['success' => true, 'newCourseId' => $newCourseId]]);
     }
 
-    if ($method === 'DELETE' && preg_match('#^/api/courses/(\d+)$#', $path, $matches)) {
-        $courseId = (int)$matches[1];
-        $course = one('SELECT id, title FROM courses WHERE id = ?', [$courseId]);
-        if (!$course) {
-            jsonResponse(404, ['error' => 'Curso no encontrado.']);
-        }
-        $pdo = db();
-        $pdo->beginTransaction();
-        try {
-            $courseLink = '/courses/' . $courseId;
-            execSql('DELETE FROM notifications WHERE link = ?', [$courseLink]);
-            if (tableExists($pdo, 'ai_usage_events')) {
-                execSql('DELETE FROM ai_usage_events WHERE course_id = ?', [$courseId]);
-            }
-            execSql('DELETE FROM courses WHERE id = ?', [$courseId]);
-            $pdo->commit();
-            jsonResponse(200, ['data' => ['success' => true]]);
-        } catch (Throwable $error) {
-            $pdo->rollBack();
-            throw $error;
-        }
-    }
-
     if ($method === 'PATCH' && preg_match('#^/api/courses/(\d+)/students$#', $path, $matches)) {
         $courseId = (int)$matches[1];
         $payload = parseBody();

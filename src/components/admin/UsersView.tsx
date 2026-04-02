@@ -8,12 +8,16 @@ import { Badge } from '../ui/badge';
 import { cn } from '@/lib/utils';
 import { Avatar, AvatarFallback, AvatarImage } from '../ui/avatar';
 import { ScrollArea } from '../ui/scroll-area';
-import { Search } from 'lucide-react';
+import { Search, UserX, Loader2 } from 'lucide-react';
 import { useCourse } from '@/context/CourseContext';
 import { UserEditDialog } from './UserEditDialog';
-import { apiGet } from '@/lib/api-client';
+import { apiGet, apiPatch, getFriendlyErrorMessage } from '@/lib/api-client';
 import { format, isValid, parseISO } from 'date-fns';
 import { es } from 'date-fns/locale';
+import { Button } from '../ui/button';
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '../ui/alert-dialog';
+import { buttonVariants } from '../ui/button';
+import { useToast } from '@/hooks/use-toast';
 
 const roleVariant: Record<UserRole, 'default' | 'secondary' | 'destructive'> = {
     admin: 'destructive',
@@ -29,11 +33,14 @@ const roleNames: Record<UserRole, string> = {
 
 export function UsersView() {
     const { allUsers, refreshCourses } = useCourse();
+    const { toast } = useToast();
     const [searchTerm, setSearchTerm] = useState('');
     const [loading, setLoading] = useState(true);
     const [selectedUser, setSelectedUser] = useState<User | null>(null);
     const [isEditModalOpen, setIsEditModalOpen] = useState(false);
     const [allRoles, setAllRoles] = useState<Role[]>([]);
+    const [studentToDeactivate, setStudentToDeactivate] = useState<User | null>(null);
+    const [isUpdatingStatus, setIsUpdatingStatus] = useState(false);
     const rolesLoadedRef = useRef(false);
 
     useEffect(() => {
@@ -84,6 +91,32 @@ export function UsersView() {
         return format(parsed, 'dd/MM/yyyy HH:mm', { locale: es });
     };
 
+    const handleDeactivateStudent = async () => {
+        if (!studentToDeactivate) {
+            return;
+        }
+        setIsUpdatingStatus(true);
+        try {
+            await apiPatch<{ success: boolean }>(`/api/users/${encodeURIComponent(studentToDeactivate.id)}`, {
+                status: 'inactive',
+            });
+            toast({
+                title: 'Estudiante desactivado',
+                description: `${studentToDeactivate.name} ahora está inactivo.`,
+            });
+            setStudentToDeactivate(null);
+            await refreshCourses();
+        } catch (error) {
+            toast({
+                title: 'No pudimos desactivar al estudiante',
+                description: getFriendlyErrorMessage(error, 'Inténtalo nuevamente en unos segundos.'),
+                variant: 'destructive',
+            });
+        } finally {
+            setIsUpdatingStatus(false);
+        }
+    };
+
     return (
         <>
             <Card className="premium-surface h-full flex flex-col">
@@ -106,7 +139,7 @@ export function UsersView() {
                     <div className="flex-grow overflow-hidden rounded-xl border">
                         <ScrollArea className="h-full">
                             <div className="overflow-x-auto">
-                            <Table className="min-w-[980px]">
+                            <Table className="min-w-[1080px]">
                                 <TableHeader>
                                     <TableRow>
                                         <TableHead>Nombre</TableHead>
@@ -115,11 +148,12 @@ export function UsersView() {
                                         <TableHead className="hidden lg:table-cell">Fecha de registro</TableHead>
                                         <TableHead className="hidden xl:table-cell">Último ingreso/actividad</TableHead>
                                         <TableHead className="text-center">Estado</TableHead>
+                                        <TableHead className="text-right">Acciones</TableHead>
                                     </TableRow>
                                 </TableHeader>
                                 <TableBody>
                                     {loading ? (
-                                        <TableRow><TableCell colSpan={6} className="text-center h-24">Cargando usuarios...</TableCell></TableRow>
+                                        <TableRow><TableCell colSpan={7} className="text-center h-24">Cargando usuarios...</TableCell></TableRow>
                                     ) : filteredUsers.length > 0 ? (
                                         filteredUsers.map(user => (
                                             <TableRow key={user.id} onClick={() => handleOpenEditModal(user)} className="cursor-pointer">
@@ -150,10 +184,29 @@ export function UsersView() {
                                                         {user.status === 'active' ? 'Activo' : 'Inactivo'}
                                                     </Badge>
                                                 </TableCell>
+                                                <TableCell className="text-right">
+                                                    {user.roles.includes('student') && user.status === 'active' ? (
+                                                        <Button
+                                                            type="button"
+                                                            variant="outline"
+                                                            size="sm"
+                                                            className="h-8"
+                                                            onClick={(event) => {
+                                                                event.stopPropagation();
+                                                                setStudentToDeactivate(user);
+                                                            }}
+                                                        >
+                                                            <UserX className="h-4 w-4" />
+                                                            Desactivar
+                                                        </Button>
+                                                    ) : (
+                                                        <span className="text-xs text-muted-foreground">—</span>
+                                                    )}
+                                                </TableCell>
                                             </TableRow>
                                         ))
                                     ) : (
-                                        <TableRow><TableCell colSpan={6} className="text-center h-24">No se encontraron usuarios.</TableCell></TableRow>
+                                        <TableRow><TableCell colSpan={7} className="text-center h-24">No se encontraron usuarios.</TableCell></TableRow>
                                     )}
                                 </TableBody>
                             </Table>
@@ -170,6 +223,30 @@ export function UsersView() {
              onClose={handleCloseEditModal}
              onUserUpdated={handleUserUpdated}
            />
+           <AlertDialog open={!!studentToDeactivate} onOpenChange={(isOpen) => !isOpen && setStudentToDeactivate(null)}>
+                <AlertDialogContent>
+                    <AlertDialogHeader>
+                        <AlertDialogTitle>¿Deseas desactivar este estudiante?</AlertDialogTitle>
+                        <AlertDialogDescription>
+                            El estudiante perderá acceso hasta que vuelvas a activarlo desde la gestión de usuarios.
+                            <blockquote className="mt-4 border-l-2 pl-4 italic">
+                                {studentToDeactivate?.name} · {studentToDeactivate?.email}
+                            </blockquote>
+                        </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                        <AlertDialogCancel disabled={isUpdatingStatus}>Cancelar</AlertDialogCancel>
+                        <AlertDialogAction
+                            onClick={handleDeactivateStudent}
+                            className={buttonVariants({ variant: 'destructive' })}
+                            disabled={isUpdatingStatus}
+                        >
+                            {isUpdatingStatus ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <UserX className="mr-2 h-4 w-4" />}
+                            Sí, desactivar
+                        </AlertDialogAction>
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+            </AlertDialog>
         </>
     );
 }
