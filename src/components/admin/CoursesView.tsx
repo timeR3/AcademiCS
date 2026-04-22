@@ -9,7 +9,10 @@ import { Badge } from '../ui/badge';
 import { ScrollArea } from '../ui/scroll-area';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '../ui/dialog';
 import { Button } from '../ui/button';
-import { Search, Tag, Users, Star, Loader2, ArrowUpDown, ArrowUp, ArrowDown, Trash2 } from 'lucide-react';
+import { Search, Tag, Users, Star, Loader2, ArrowUpDown, ArrowUp, ArrowDown, Trash2, BarChart2, FileDown, Table as LucideTable, Pencil } from 'lucide-react';
+
+
+
 import { useCourse } from '@/context/CourseContext';
 import { Progress } from '../ui/progress';
 import { Separator } from '../ui/separator';
@@ -29,7 +32,8 @@ type StudentSortKey = 'name' | 'progress' | 'dueDate' | 'finalScore';
 type SortDirection = 'asc' | 'desc';
 
 export function CoursesView({ onPrefetchCourse }: CoursesViewProps) {
-    const { courses, archivedCourses, allUsers, refreshCourses } = useCourse();
+    const { courses, archivedCourses, allUsers, refreshCourses, setAdminView, setActiveCourseId } = useCourse();
+
     const { toast } = useToast();
     const [allCourses, setAllCourses] = useState<Course[]>([]);
     const [searchTerm, setSearchTerm] = useState('');
@@ -411,10 +415,61 @@ export function CoursesView({ onPrefetchCourse }: CoursesViewProps) {
                             </Table>
                             </div>
                         </ScrollArea>
-                     </div>
-                    <DialogFooter>
+                      </div>
+                    <DialogFooter className="flex-col sm:flex-row gap-2">
+                        <div className="flex flex-wrap gap-2 mr-auto">
+                            <Button 
+                                variant="outline" 
+                                size="sm"
+                                className="bg-green-50 text-green-700 border-green-200 hover:bg-green-100"
+                                onClick={() => selectedCourse && window.open(`/api/reports/export/csv?courseId=${selectedCourse.id}`, '_blank')}
+                            >
+                                <LucideTable className="h-4 w-4 mr-1" />
+                                Excel
+                            </Button>
+                            <Button 
+                                variant="outline" 
+                                size="sm"
+                                className="bg-blue-50 text-blue-700 border-blue-200 hover:bg-blue-100"
+                                onClick={() => selectedCourse && window.open(`/api/reports/export/pdf-view?courseId=${selectedCourse.id}`, '_blank')}
+                            >
+                                <FileDown className="h-4 w-4 mr-1" />
+                                PDF
+                            </Button>
+                        </div>
+                        <Button variant="secondary" onClick={() => {
+                            if (selectedCourse) {
+                                setActiveCourseId(selectedCourse.id);
+                                setAdminView('course-analytics');
+                            }
+                        }}>
+                            <BarChart2 className="h-4 w-4 mr-2" />
+                            Ver Analíticas
+                        </Button>
+                        <Button variant="outline" className="border-primary text-primary hover:bg-primary/5" onClick={() => {
+                            if (selectedCourse) {
+                                setActiveCourseId(selectedCourse.id);
+                                setAdminView('students');
+                            }
+                        }}>
+                            <Users className="h-4 w-4 mr-2" />
+                            Gestionar Estudiantes
+                        </Button>
+                        <Button variant="default" className="bg-amber-600 hover:bg-amber-700" onClick={() => {
+                            if (selectedCourse) {
+                                setActiveCourseId(selectedCourse.id);
+                                setAdminView('edit-course');
+                            }
+                        }}>
+                            <Pencil className="h-4 w-4 mr-2" />
+                            Editar Curso
+                        </Button>
                         <Button variant="outline" onClick={handleCloseDialog}>Cerrar</Button>
+
+
                     </DialogFooter>
+
+
                 </DialogContent>
             </Dialog>
             <AlertDialog open={!!courseToDelete} onOpenChange={(isOpen) => !isOpen && setCourseToDelete(null)}>

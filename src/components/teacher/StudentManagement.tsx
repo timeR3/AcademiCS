@@ -52,7 +52,7 @@ export function StudentManagement() {
     }, [toast, allUsers]);
 
     useEffect(() => {
-        if (activeCourse) {
+        if (activeCourse && activeCourse.students) {
             const initialEnrollments = activeCourse.students.reduce((acc, enrollment) => {
                 acc[enrollment.studentId] = { dueDate: enrollment.dueDate ? new Date(enrollment.dueDate) : null };
                 return acc;
@@ -60,6 +60,7 @@ export function StudentManagement() {
             setEnrolledStudents(initialEnrollments);
         }
     }, [activeCourse]);
+
 
     const filteredStudents = allPlatformStudents.filter(student => 
         student.name.toLowerCase().includes(searchTerm.toLowerCase()) ||

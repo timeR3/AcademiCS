@@ -8,6 +8,13 @@ import { CourseCreationView } from '../teacher/CourseCreationView';
 import type { Course } from '@/types';
 import { useCourse } from '@/context/CourseContext';
 import { apiGet } from '@/lib/api-client';
+import { CourseAnalytics } from '../teacher/CourseAnalytics';
+import { StudentManagement } from '../teacher/StudentManagement';
+import { ArrowLeft } from 'lucide-react';
+import { Button } from '../ui/button';
+
+
+
 
 export default function AdminDashboard() {
   const { adminView, setAdminView, activeCourse, setActiveCourseId, refreshCourses, updateCourse, courses, archivedCourses } = useCourse();
@@ -72,24 +79,39 @@ export default function AdminDashboard() {
     };
   }, [adminView, courses, archivedCourses, prefetchCourseDetails]);
   
-  if (adminView === 'edit-course' && activeCourse) {
-    return <CourseCreationView onCourseSaved={handleBackToTabs} isEditing={true} isAdminView={true} />;
-  }
-
   const renderContent = () => {
     switch (adminView) {
       case 'analytics':
         return <AnalyticsView />;
+      case 'course-analytics':
+        return <CourseAnalytics onBack={handleBackToTabs} />;
+      case 'edit-course':
+        if (!activeCourse) {
+          setTimeout(() => setAdminView('courses'), 0);
+          return <AnalyticsView />;
+        }
+        return <CourseCreationView onCourseSaved={handleBackToTabs} isEditing={true} isAdminView={true} />;
+      case 'students':
+        return (
+            <div>
+                 <Button variant="ghost" onClick={() => setAdminView('courses')} className="mb-4">
+                    <ArrowLeft className="mr-2 h-4 w-4" />
+                    Volver a Cursos
+                </Button>
+                <StudentManagement />
+            </div>
+        );
       case 'courses':
         return <CoursesView onPrefetchCourse={prefetchCourseDetails} />;
       case 'users':
         return <UsersView />;
-       case 'settings':
+      case 'settings':
         return <SettingsView />;
       default:
         return <AnalyticsView />;
     }
-  }
+  };
+
 
   return (
     <div className="w-full h-full min-w-0 space-y-6 sm:space-y-8">

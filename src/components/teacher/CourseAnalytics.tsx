@@ -4,7 +4,8 @@ import { useState, useEffect } from 'react';
 import { useCourse } from '@/context/CourseContext';
 import { Card, CardHeader, CardTitle, CardContent, CardDescription } from '../ui/card';
 import { Button } from '../ui/button';
-import { ArrowLeft, BarChart2, CheckCircle, Percent, Star, Users } from 'lucide-react';
+import { ArrowLeft, BarChart2, CheckCircle, Percent, Star, Users, FileDown, Table as TableIcon } from 'lucide-react';
+
 import type { CourseAnalyticsData } from '@/types';
 import { Loader2 } from 'lucide-react';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
@@ -72,6 +73,26 @@ export function CourseAnalytics({ onBack }: CourseAnalyticsProps) {
                     <p className="text-muted-foreground">Análisis de Rendimiento</p>
                 </div>
             </div>
+
+            <div className="flex flex-wrap gap-4 mb-6">
+                <Button 
+                    variant="outline" 
+                    className="flex-1 sm:flex-none gap-2 bg-green-50 text-green-700 border-green-200 hover:bg-green-100"
+                    onClick={() => window.open(`/api/reports/export/csv?courseId=${activeCourse.id}`, '_blank')}
+                >
+                    <TableIcon className="h-4 w-4" />
+                    Exportar a Excel (.csv)
+                </Button>
+                <Button 
+                    variant="outline" 
+                    className="flex-1 sm:flex-none gap-2 bg-blue-50 text-blue-700 border-blue-200 hover:bg-blue-100"
+                    onClick={() => window.open(`/api/reports/export/pdf-view?courseId=${activeCourse.id}`, '_blank')}
+                >
+                    <FileDown className="h-4 w-4" />
+                    Generar Reporte PDF
+                </Button>
+            </div>
+
             
             <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-4">
                 {statCards.map((card, index) => (
