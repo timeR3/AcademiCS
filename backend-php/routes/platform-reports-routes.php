@@ -161,6 +161,18 @@ function handlePlatformReportsRoutes(string $method, string $path): void {
             exit;
         }
         $data = fetchDetailedCourseReport($courseId);
+
+        // Función auxiliar para convertir imagen a Base64 (evita problemas de rutas en producción)
+        $imageToBase64 = function($relativePath) {
+            $path = __DIR__ . '/../public' . $relativePath;
+            if (!file_exists($path)) return '';
+            $type = pathinfo($path, PATHINFO_EXTENSION);
+            $data = file_get_contents($path);
+            return 'data:image/' . $type . ';base64,' . base64_encode($data);
+        };
+
+        $logoCtvBase64 = $imageToBase64('/assets/img/logo_ctv.png');
+        $logoUafeBase64 = $imageToBase64('/assets/img/logo_uafe.png');
         
         // Detectar si es un curso de UAFE basándose en el título
         $isUafe = stripos($data['courseTitle'], 'UAFE') !== false 
@@ -168,18 +180,13 @@ function handlePlatformReportsRoutes(string $method, string $path): void {
                || stripos($data['courseTitle'], 'LA/FT') !== false
                || stripos($data['courseTitle'], 'PLA') !== false;
         
-        // Leer parámetros opcionales del modal UAFE (vienen por query string)
+        // Leer parámetros opcionales del modal UAFE
         $uafeFecha = $_GET['fecha'] ?? '';
         $uafeDuracion = $_GET['duracion'] ?? '';
         $uafeBaseLegal = $_GET['baseLegal'] ?? '';
         $uafeTipo = $_GET['tipo'] ?? '';
         
         $teacherName = $data['teacherName'] ?? 'N/A';
-        
-        // Construir la URL base para los logos
-        $protocol = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
-        $host = $_SERVER['HTTP_HOST'] ?? 'localhost:8000';
-        $baseUrl = $protocol . '://' . $host;
         
         echo '<!DOCTYPE html>
 <html lang="es">
@@ -194,9 +201,9 @@ function handlePlatformReportsRoutes(string $method, string $path): void {
         .no-print button { background: #3b82f6; color: white; border: none; padding: 10px 20px; border-radius: 5px; cursor: pointer; font-weight: bold; font-size: 14px; }
         .no-print button:hover { background: #2563eb; }
         
-        .header-logos { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 15px; padding: 0 10px; }
-        .logo-ctv { height: 65px; }
-        .logo-uafe { height: 75px; }
+        .header-logos { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 15px; padding: 0 10px; min-height: 80px; }
+        .logo-ctv { height: 65px; width: auto; }
+        .logo-uafe { height: 75px; width: auto; }
         
         .program-title { text-align: center; font-size: 13px; font-weight: bold; margin: 8px 0 15px 0; line-height: 1.4; }
         
@@ -238,8 +245,8 @@ function handlePlatformReportsRoutes(string $method, string $path): void {
             // ============ CABECERA UAFE ============
             echo '
     <div class="header-logos">
-        <img src="' . $baseUrl . '/assets/img/logo_ctv.png" alt="Constructora Thalia Victoria" class="logo-ctv" onerror="this.outerHTML=\'<div style=font-size:14px;font-weight:bold;color:#1e3a8a;>CONSTRUCTORA<br>THALIA VICTORIA</div>\';">
-        <img src="' . $baseUrl . '/assets/img/logo_uafe.png" alt="UAFE" class="logo-uafe" onerror="this.outerHTML=\'<div style=font-size:14px;font-weight:bold;color:#c0392b;text-align:right;>UAFE<br><small>Unidad de An&aacute;lisis<br>Financiero y Econ&oacute;mico</small></div>\';">
+        ' . ($logoCtvBase64 ? '<img src="' . $logoCtvBase64 . '" alt="CTV" class="logo-ctv">' : '<div style="font-size:14px;font-weight:bold;color:#1e3a8a;">CONSTRUCTORA<br>THALIA VICTORIA</div>') . '
+        ' . ($logoUafeBase64 ? '<img src="' . $logoUafeBase64 . '" alt="UAFE" class="logo-uafe">' : '<div style="font-size:14px;font-weight:bold;color:#c0392b;text-align:right;">UAFE<br><small>Unidad de An&aacute;lisis<br>Financiero y Econ&oacute;mico</small></div>') . '
     </div>
     
     <div class="program-title">
@@ -298,7 +305,7 @@ function handlePlatformReportsRoutes(string $method, string $path): void {
             // ============ CABECERA SIMPLE (no-UAFE) ============
             echo '
     <div class="header-logos" style="justify-content: flex-start;">
-        <img src="' . $baseUrl . '/assets/img/logo_ctv.png" alt="Constructora Thalia Victoria" class="logo-ctv" onerror="this.outerHTML=\'<div style=font-size:14px;font-weight:bold;color:#1e3a8a;>CONSTRUCTORA THALIA VICTORIA</div>\';">
+        ' . ($logoCtvBase64 ? '<img src="' . $logoCtvBase64 . '" alt="CTV" class="logo-ctv">' : '<div style="font-size:14px;font-weight:bold;color:#1e3a8a;">CONSTRUCTORA THALIA VICTORIA</div>') . '
     </div>
     <div class="simple-header">
         <h1>' . htmlspecialchars($data['courseTitle']) . '</h1>
