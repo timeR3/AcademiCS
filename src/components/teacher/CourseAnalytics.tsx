@@ -11,15 +11,31 @@ import { Loader2 } from 'lucide-react';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Progress } from '../ui/progress';
 import { apiGet } from '@/lib/api-client';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '../ui/dialog';
+import { Input } from '../ui/input';
+import { Label } from '../ui/label';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
 
 interface CourseAnalyticsProps {
     onBack: () => void;
+}
+
+function isUafeCourse(title: string): boolean {
+    const lower = title.toLowerCase();
+    return lower.includes('uafe') || lower.includes('lavado de activos') || lower.includes('la/ft') || lower.includes('pla');
 }
 
 export function CourseAnalytics({ onBack }: CourseAnalyticsProps) {
     const { activeCourse } = useCourse();
     const [analytics, setAnalytics] = useState<CourseAnalyticsData | null>(null);
     const [loading, setLoading] = useState(true);
+
+    // Estado del modal UAFE
+    const [showUafeModal, setShowUafeModal] = useState(false);
+    const [uafeFecha, setUafeFecha] = useState('');
+    const [uafeDuracion, setUafeDuracion] = useState('');
+    const [uafeBaseLegal, setUafeBaseLegal] = useState('Resoluciones UAFE-DG-2024-0621 (Reg. Ofc.675 -30/10/24) / SCVS-RNAE-1904.');
+    const [uafeTipo, setUafeTipo] = useState('');
 
     useEffect(() => {
         if (activeCourse) {
@@ -30,11 +46,35 @@ export function CourseAnalytics({ onBack }: CourseAnalyticsProps) {
                 })
                 .catch(err => {
                     console.error("Failed to load course analytics", err);
-                    // Handle error state in UI if needed
                 })
                 .finally(() => setLoading(false));
         }
     }, [activeCourse]);
+
+    const handlePdfClick = () => {
+        if (!activeCourse) return;
+        
+        if (isUafeCourse(activeCourse.title)) {
+            // Mostrar modal para pedir datos adicionales
+            setShowUafeModal(true);
+        } else {
+            // Abrir directamente sin datos extra
+            window.open(`/api/reports/export/pdf-view?courseId=${activeCourse.id}`, '_blank');
+        }
+    };
+
+    const handleUafeGenerate = () => {
+        if (!activeCourse) return;
+        const params = new URLSearchParams({
+            courseId: activeCourse.id.toString(),
+            fecha: uafeFecha,
+            duracion: uafeDuracion,
+            baseLegal: uafeBaseLegal,
+            tipo: uafeTipo
+        });
+        window.open(`/api/reports/export/pdf-view?${params.toString()}`, '_blank');
+        setShowUafeModal(false);
+    };
 
     if (loading) {
         return (
@@ -86,7 +126,7 @@ export function CourseAnalytics({ onBack }: CourseAnalyticsProps) {
                 <Button 
                     variant="outline" 
                     className="flex-1 sm:flex-none gap-2 bg-blue-50 text-blue-700 border-blue-200 hover:bg-blue-100"
-                    onClick={() => window.open(`/api/reports/export/pdf-view?courseId=${activeCourse.id}`, '_blank')}
+                    onClick={handlePdfClick}
                 >
                     <FileDown className="h-4 w-4" />
                     Generar Reporte PDF
@@ -139,6 +179,66 @@ export function CourseAnalytics({ onBack }: CourseAnalyticsProps) {
                     </Table>
                 </CardContent>
             </Card>
+
+            {/* Modal UAFE para datos adicionales del reporte */}
+            <Dialog open={showUafeModal} onOpenChange={setShowUafeModal}>
+                <DialogContent className="sm:max-w-[500px]">
+                    <DialogHeader>
+                        <DialogTitle className="text-xl">Datos del Reporte UAFE</DialogTitle>
+                        <DialogDescription>
+                            Este curso requiere información adicional para generar el reporte oficial de la UAFE. Por favor, complete los siguientes campos.
+                        </DialogDescription>
+                    </DialogHeader>
+                    <div className="grid gap-4 py-4">
+                        <div className="grid gap-2">
+                            <Label htmlFor="uafe-fecha">Fecha de la capacitación</Label>
+                            <Input 
+                                id="uafe-fecha" 
+                                type="date"
+                                value={uafeFecha} 
+                                onChange={(e) => setUafeFecha(e.target.value)} 
+                                placeholder="dd/mm/yyyy"
+                            />
+                        </div>
+                        <div className="grid gap-2">
+                            <Label htmlFor="uafe-duracion">Duración</Label>
+                            <Input 
+                                id="uafe-duracion" 
+                                value={uafeDuracion} 
+                                onChange={(e) => setUafeDuracion(e.target.value)} 
+                                placeholder="Ej: 3 horas"
+                            />
+                        </div>
+                        <div className="grid gap-2">
+                            <Label htmlFor="uafe-base-legal">Base Legal</Label>
+                            <Input 
+                                id="uafe-base-legal" 
+                                value={uafeBaseLegal} 
+                                onChange={(e) => setUafeBaseLegal(e.target.value)} 
+                            />
+                        </div>
+                        <div className="grid gap-2">
+                            <Label htmlFor="uafe-tipo">Tipo de capacitación</Label>
+                            <Select value={uafeTipo} onValueChange={setUafeTipo}>
+                                <SelectTrigger id="uafe-tipo">
+                                    <SelectValue placeholder="Seleccione el tipo..." />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    <SelectItem value="induccion">Inducción (Nuevo Personal)</SelectItem>
+                                    <SelectItem value="refuerzo">Refuerzo Anual</SelectItem>
+                                </SelectContent>
+                            </Select>
+                        </div>
+                    </div>
+                    <DialogFooter>
+                        <Button variant="outline" onClick={() => setShowUafeModal(false)}>Cancelar</Button>
+                        <Button onClick={handleUafeGenerate} className="bg-blue-600 hover:bg-blue-700">
+                            <FileDown className="h-4 w-4 mr-2" />
+                            Generar Reporte
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
 
         </div>
     )

@@ -2,7 +2,13 @@
 declare(strict_types=1);
 
 function fetchDetailedCourseReport(int $courseId): array {
-    $course = one('SELECT title FROM courses WHERE id = ?', [$courseId]);
+    $course = one(
+        'SELECT c.title, c.teacher_id, u.name AS teacher_name
+         FROM courses c
+         JOIN users u ON u.id = c.teacher_id
+         WHERE c.id = ?',
+        [$courseId]
+    );
     if (!$course) {
         return [];
     }
@@ -23,6 +29,7 @@ function fetchDetailedCourseReport(int $courseId): array {
     if (empty($enrollments)) {
         return [
             'courseTitle' => $course['title'],
+            'teacherName' => $course['teacher_name'],
             'totalEnrolled' => 0,
             'totalModules' => $totalModules,
             'students' => []
@@ -78,6 +85,7 @@ function fetchDetailedCourseReport(int $courseId): array {
 
     return [
         'courseTitle' => $course['title'],
+        'teacherName' => $course['teacher_name'],
         'totalEnrolled' => count($enrollments),
         'totalModules' => $totalModules,
         'students' => $reportData
@@ -154,92 +162,200 @@ function handlePlatformReportsRoutes(string $method, string $path): void {
         }
         $data = fetchDetailedCourseReport($courseId);
         
-        ?>
-        <!DOCTYPE html>
-        <html lang="es">
-        <head>
-            <meta charset="UTF-8">
-            <title>Reporte de Curso - <?php echo htmlspecialchars($data['courseTitle']); ?></title>
-            <style>
-                body { font-family: sans-serif; color: #333; padding: 20px; line-height: 1.4; }
-                .header { text-align: center; margin-bottom: 30px; border-bottom: 2px solid #eee; padding-bottom: 10px; }
-                .summary { margin-bottom: 20px; display: flex; justify-content: space-between; background: #f9f9f9; padding: 15px; border-radius: 8px; }
-                table { width: 100%; border-collapse: collapse; margin-top: 10px; }
-                th, td { border: 1px solid #ddd; padding: 10px; text-align: left; font-size: 12px; }
-                th { background-color: #3b82f6; color: white; }
-                tr:nth-child(even) { background-color: #f2f2f2; }
-                .status-completed { color: #059669; font-weight: bold; }
-                .status-progress { color: #d97706; }
-                .no-print { background: #fff3cd; padding: 15px; margin-bottom: 20px; border: 1px solid #ffeeba; text-align: center; border-radius: 8px; }
-                button { background: #3b82f6; color: white; border: none; padding: 10px 20px; border-radius: 5px; cursor: pointer; font-weight: bold; }
-                button:hover { background: #2563eb; }
-                @media print {
-                    .no-print { display: none; }
-                    body { padding: 0; }
-                    th { background-color: #3b82f6 !important; color: white !important; -webkit-print-color-adjust: exact; }
-                }
-            </style>
-        </head>
-        <body>
-            <div class="no-print">
-                <p style="margin-bottom: 10px;">Para guardar como PDF, haz clic en el botón y selecciona "Guardar como PDF" en el destino de la impresora.</p>
-                <button onclick="window.print()">Descargar / Imprimir Reporte</button>
-            </div>
+        // Detectar si es un curso de UAFE basándose en el título
+        $isUafe = stripos($data['courseTitle'], 'UAFE') !== false 
+               || stripos($data['courseTitle'], 'Lavado de Activos') !== false
+               || stripos($data['courseTitle'], 'LA/FT') !== false
+               || stripos($data['courseTitle'], 'PLA') !== false;
+        
+        // Leer parámetros opcionales del modal UAFE (vienen por query string)
+        $uafeFecha = $_GET['fecha'] ?? '';
+        $uafeDuracion = $_GET['duracion'] ?? '';
+        $uafeBaseLegal = $_GET['baseLegal'] ?? '';
+        $uafeTipo = $_GET['tipo'] ?? '';
+        
+        $teacherName = $data['teacherName'] ?? 'N/A';
+        
+        // Construir la URL base para los logos
+        $protocol = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
+        $host = $_SERVER['HTTP_HOST'] ?? 'localhost:8000';
+        $baseUrl = $protocol . '://' . $host;
+        
+        echo '<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <title>Reporte - ' . htmlspecialchars($data['courseTitle']) . '</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: "Helvetica Neue", "Helvetica", "Arial", sans-serif; color: #1a1a1a; padding: 15px 25px; line-height: 1.3; font-size: 11px; }
+        
+        .no-print { background: #fff3cd; padding: 15px; margin-bottom: 20px; border: 1px solid #ffeeba; text-align: center; border-radius: 8px; }
+        .no-print button { background: #3b82f6; color: white; border: none; padding: 10px 20px; border-radius: 5px; cursor: pointer; font-weight: bold; font-size: 14px; }
+        .no-print button:hover { background: #2563eb; }
+        
+        .header-logos { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 15px; padding: 0 10px; }
+        .logo-ctv { height: 65px; }
+        .logo-uafe { height: 75px; }
+        
+        .program-title { text-align: center; font-size: 13px; font-weight: bold; margin: 8px 0 15px 0; line-height: 1.4; }
+        
+        .info-table { width: 100%; border-collapse: collapse; margin-bottom: 10px; }
+        .info-table td { border: 1px solid #333; padding: 5px 10px; vertical-align: middle; font-size: 11px; }
+        .info-label { background-color: #e8e8e8; font-weight: bold; width: 110px; text-align: right; padding-right: 12px !important; }
+        
+        .participants-table { width: 100%; border-collapse: collapse; margin-top: 15px; }
+        .participants-table th { border: 1px solid #333; padding: 7px 10px; background-color: #e8e8e8; text-align: left; font-weight: bold; font-size: 11px; }
+        .participants-table td { border: 1px solid #333; padding: 10px; font-size: 11px; }
+        .participants-table .col-num { width: 5%; text-align: center; }
+        .participants-table .col-name { width: 30%; }
+        .participants-table .col-email { width: 30%; }
+        .participants-table .col-signature { width: 35%; }
+        
+        .simple-header { text-align: center; margin-bottom: 20px; padding-bottom: 10px; border-bottom: 2px solid #ccc; }
+        .simple-header h1 { font-size: 18px; color: #1e3a8a; margin-bottom: 4px; }
+        .simple-header h2 { font-size: 14px; color: #555; font-weight: normal; }
+        .simple-header .meta { font-size: 11px; color: #777; margin-top: 8px; }
+        
+        .footer-note { margin-top: 40px; font-size: 9px; text-align: center; color: #888; border-top: 1px solid #ddd; padding-top: 15px; }
+        
+        @media print {
+            .no-print { display: none !important; }
+            body { padding: 0 10px; }
+            @page { margin: 1cm; }
+            .info-label { background-color: #e8e8e8 !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+            .participants-table th { background-color: #e8e8e8 !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+        }
+    </style>
+</head>
+<body>
+    <div class="no-print">
+        <p style="margin-bottom: 10px;">Para guardar como PDF, haz clic en el bot&oacute;n y selecciona "Guardar como PDF" en el destino de la impresora.</p>
+        <button onclick="window.print()">Descargar / Imprimir Reporte</button>
+    </div>';
+        
+        if ($isUafe) {
+            // ============ CABECERA UAFE ============
+            echo '
+    <div class="header-logos">
+        <img src="' . $baseUrl . '/assets/img/logo_ctv.png" alt="Constructora Thalia Victoria" class="logo-ctv" onerror="this.outerHTML=\'<div style=font-size:14px;font-weight:bold;color:#1e3a8a;>CONSTRUCTORA<br>THALIA VICTORIA</div>\';">
+        <img src="' . $baseUrl . '/assets/img/logo_uafe.png" alt="UAFE" class="logo-uafe" onerror="this.outerHTML=\'<div style=font-size:14px;font-weight:bold;color:#c0392b;text-align:right;>UAFE<br><small>Unidad de An&aacute;lisis<br>Financiero y Econ&oacute;mico</small></div>\';">
+    </div>
+    
+    <div class="program-title">
+        Programa Anual de Capacitaci&oacute;n en Materia de Prevenci&oacute;n de Lavado de<br>
+        Activos (PLA) - ' . date('Y') . '
+    </div>
+    
+    <table class="info-table">
+        <tr>
+            <td class="info-label">Raz&oacute;n Social :</td>
+            <td>CONSTRUCTORA THALIA VICTORIA S.A.</td>
+        </tr>
+        <tr>
+            <td class="info-label">RUC:</td>
+            <td>0990215456001</td>
+        </tr>
+        <tr>
+            <td class="info-label">Base Legal:</td>
+            <td>' . htmlspecialchars($uafeBaseLegal ?: 'Resoluciones UAFE-DG-2024-0621 (Reg. Ofc.675 -30/10/24) / SCVS-RNAE-1904.') . '</td>
+        </tr>
+    </table>
+    
+    <table class="info-table">
+        <tr>
+            <td class="info-label">Tema:</td>
+            <td><strong>' . htmlspecialchars($data['courseTitle']) . '</strong></td>
+        </tr>
+        <tr>
+            <td class="info-label">Fecha:</td>
+            <td><strong>' . htmlspecialchars($uafeFecha ?: date('d/m/Y')) . '</strong></td>
+        </tr>
+        <tr>
+            <td class="info-label">Expositor:</td>
+            <td><strong>' . htmlspecialchars($teacherName) . '</strong></td>
+        </tr>
+        <tr>
+            <td class="info-label">Duraci&oacute;n:</td>
+            <td><strong>' . htmlspecialchars($uafeDuracion ?: 'N/A') . '</strong></td>
+        </tr>
+        <tr>
+            <td class="info-label">Tipo:</td>
+            <td>';
             
-            <div class="header">
-                <h1 style="margin: 0; color: #1e3a8a;">AcademiCS</h1>
-                <h2 style="margin: 5px 0 0 0; color: #4b5563;">Reporte de Progreso Estudiantil</h2>
-                <h3 style="margin: 10px 0 0 0; color: #2563eb;"><?php echo htmlspecialchars($data['courseTitle']); ?></h3>
-            </div>
+            if ($uafeTipo === 'induccion') {
+                echo '<strong>[X] Inducci&oacute;n (Nuevo Personal) &nbsp;&nbsp; [ ] Refuerzo Anual</strong>';
+            } elseif ($uafeTipo === 'refuerzo') {
+                echo '<strong>[ ] Inducci&oacute;n (Nuevo Personal) &nbsp;&nbsp; [X] Refuerzo Anual</strong>';
+            } else {
+                echo '<strong>[ ] Inducci&oacute;n (Nuevo Personal) &nbsp;&nbsp; [ ] Refuerzo Anual</strong>';
+            }
             
-            <div class="summary">
-                <div><strong>Fecha Generación:</strong> <?php echo date('d/m/Y H:i'); ?></div>
-                <div><strong>Total Estudiantes:</strong> <?php echo $data['totalEnrolled']; ?></div>
-                <div><strong>Módulos en el Curso:</strong> <?php echo $data['totalModules']; ?></div>
-            </div>
-            
-            <table>
-                <thead>
-                    <tr>
-                        <th>Estudiante</th>
-                        <th>Email</th>
-                        <th>Estado</th>
-                        <th>Progreso</th>
-                        <th>Calificación</th>
-                        <th>Finalización</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    <?php if (empty($data['students'])): ?>
-                        <tr><td colspan="6" style="text-align: center;">No hay estudiantes inscritos actualmente.</td></tr>
-                    <?php else: ?>
-                        <?php foreach ($data['students'] as $student): ?>
-                            <tr>
-                                <td style="font-weight: 500;"><?php echo htmlspecialchars($student['studentName']); ?></td>
-                                <td><?php echo htmlspecialchars($student['email']); ?></td>
-                                <td class="<?php echo $student['status'] === 'Completado' ? 'status-completed' : 'status-progress'; ?>">
-                                    <?php echo $student['status']; ?>
-                                </td>
-                                <td>
-                                    <div style="background: #e5e7eb; height: 8px; border-radius: 4px; width: 60px; display: inline-block; margin-right: 5px;">
-                                        <div style="background: #3b82f6; height: 100%; border-radius: 4px; width: <?php echo $student['progress']; ?>;"></div>
-                                    </div>
-                                    <?php echo $student['progress']; ?>
-                                </td>
-                                <td style="font-weight: bold;"><?php echo $student['grade']; ?></td>
-                                <td><?php echo $student['completionDate']; ?></td>
-                            </tr>
-                        <?php endforeach; ?>
-                    <?php endif; ?>
-                </tbody>
-            </table>
-            
-            <div style="margin-top: 50px; font-size: 10px; text-align: center; color: #9ca3af; border-top: 1px solid #eee; padding-top: 20px;">
-                Este documento es un reporte oficial generado por la plataforma AcademiCS.
-            </div>
-        </body>
-        </html>
-        <?php
+            echo '</td>
+        </tr>
+    </table>';
+        } else {
+            // ============ CABECERA SIMPLE (no-UAFE) ============
+            echo '
+    <div class="header-logos" style="justify-content: flex-start;">
+        <img src="' . $baseUrl . '/assets/img/logo_ctv.png" alt="Constructora Thalia Victoria" class="logo-ctv" onerror="this.outerHTML=\'<div style=font-size:14px;font-weight:bold;color:#1e3a8a;>CONSTRUCTORA THALIA VICTORIA</div>\';">
+    </div>
+    <div class="simple-header">
+        <h1>' . htmlspecialchars($data['courseTitle']) . '</h1>
+        <h2>Registro de Asistencia</h2>
+        <div class="meta">
+            Expositor: <strong>' . htmlspecialchars($teacherName) . '</strong> &nbsp;|&nbsp;
+            Fecha: <strong>' . date('d/m/Y') . '</strong> &nbsp;|&nbsp;
+            Participantes: <strong>' . $data['totalEnrolled'] . '</strong>
+        </div>
+    </div>';
+        }
+        
+        // ============ TABLA DE PARTICIPANTES ============
+        echo '
+    <table class="participants-table">
+        <thead>
+            <tr>
+                <th class="col-num">N&deg;</th>
+                <th class="col-name">Nombre del Participante</th>
+                <th class="col-email">Correo Electr&oacute;nico</th>
+                <th class="col-signature">Firma</th>
+            </tr>
+        </thead>
+        <tbody>';
+        
+        if (empty($data['students'])) {
+            echo '<tr><td colspan="4" style="text-align: center; padding: 20px;">No hay participantes registrados en este curso.</td></tr>';
+        } else {
+            $num = 1;
+            foreach ($data['students'] as $student) {
+                echo '<tr>
+                    <td class="col-num">' . $num++ . '</td>
+                    <td>' . htmlspecialchars($student['studentName']) . '</td>
+                    <td>' . htmlspecialchars($student['email']) . '</td>
+                    <td></td>
+                </tr>';
+            }
+            // Filas vacías adicionales para firmas manuales
+            for ($i = 0; $i < 3; $i++) {
+                echo '<tr>
+                    <td class="col-num">' . $num++ . '</td>
+                    <td>&nbsp;</td>
+                    <td>&nbsp;</td>
+                    <td></td>
+                </tr>';
+            }
+        }
+        
+        echo '
+        </tbody>
+    </table>
+    
+    <div class="footer-note">
+        Este documento es un registro oficial de asistencia generado por la plataforma AcademiCS para Constructora Thalia Victoria S.A.
+    </div>
+</body>
+</html>';
         exit;
     }
 }
