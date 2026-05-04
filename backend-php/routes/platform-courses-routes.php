@@ -1,6 +1,8 @@
 <?php
 declare(strict_types=1);
 
+require_once dirname(__DIR__) . DIRECTORY_SEPARATOR . 'utils' . DIRECTORY_SEPARATOR . 'mailer.php';
+
 function resolveSharedFileIdsFromReferences(array $references): array {
     $hashes = [];
     $numericRefs = [];
@@ -392,15 +394,69 @@ function handlePlatformCoursesRoutes(string $method, string $path): void {
                     $newIds[] = $sid;
                 }
             }
-            $course = one('SELECT title FROM courses WHERE id = ?', [$courseId]);
+            $course = one('SELECT title, teacher_id FROM courses WHERE id = ?', [$courseId]);
             $courseTitle = $course['title'] ?? 'curso';
+            
+            // Obtener email del profesor para usar en el Reply-To
+            $teacherId = (int)($course['teacher_id'] ?? 0);
+            $teacherEmail = '';
+            $teacherName = '';
+            if ($teacherId > 0) {
+                $teacher = one('SELECT email, name FROM users WHERE id = ?', [$teacherId]);
+                if ($teacher) {
+                    $teacherEmail = $teacher['email'];
+                    $teacherName = $teacher['name'];
+                }
+            }
+
+            $emailsSent = 0;
+
             if (count($newIds) > 0) {
                 $insertNotificationStmt = $pdo->prepare('INSERT INTO notifications (user_id, title, description, link) VALUES (?, ?, ?, ?)');
+                
+                // Pre-cargar los correos de los estudiantes si se va a notificar por email
+                $studentEmails = [];
+                if ($notify) {
+                    $placeholders = inClausePlaceholders($newIds);
+                    $users = many("SELECT id, email, name FROM users WHERE id IN ({$placeholders})", $newIds);
+                    foreach ($users as $u) {
+                        $studentEmails[(int)$u['id']] = $u;
+                    }
+                }
+
                 foreach ($newIds as $sid) {
                     if (!courseNotificationAllowedForUser($sid, 'course_enrollment')) {
                         continue;
                     }
                     $insertNotificationStmt->execute([$sid, 'Inscrito en un nuevo curso', 'Has sido inscrito en el curso "' . $courseTitle . '". ¡Empieza a aprender ahora!', '/courses/' . $courseId]);
+                    
+                    // Enviar correo
+                    if ($notify && isset($studentEmails[$sid])) {
+                        $studentData = $studentEmails[$sid];
+                        $frontendOrigin = envValue('FRONTEND_ORIGIN', 'https://academics.costasol.com.ec');
+                        $courseLink = rtrim($frontendOrigin, '/') . '/courses/' . $courseId;
+                        
+                        $subject = "¡Bienvenido/a al curso: {$courseTitle}!";
+                        $htmlBody = "
+                            <div style='font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; color: #333;'>
+                                <h2 style='color: #0f172a;'>¡Hola, {$studentData['name']}!</h2>
+                                <p>Has sido inscrito/a exitosamente en el curso: <strong>{$courseTitle}</strong>.</p>
+                                <p>Ya puedes acceder a la plataforma para revisar el contenido y comenzar tu aprendizaje.</p>
+                                " . ($teacherName ? "<p><strong>Profesor/a asignado/a:</strong> {$teacherName}</p>" : "") . "
+                                <div style='text-align: center; margin: 30px 0;'>
+                                    <a href='{$courseLink}' style='background-color: #2563eb; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; font-weight: bold;'>Ir al curso ahora</a>
+                                </div>
+                                <p style='font-size: 12px; color: #64748b; margin-top: 40px; border-top: 1px solid #e2e8f0; padding-top: 15px;'>
+                                    Este es un mensaje automático de la plataforma AcademiCS. " . ($teacherEmail ? "Si respondes a este correo, el mensaje se enviará directamente a tu profesor." : "Por favor no respondas a esta dirección.") . "
+                                </p>
+                            </div>
+                        ";
+
+                        $success = sendMicrosoftGraphEmail($studentData['email'], $subject, $htmlBody, $teacherEmail ?: null);
+                        if ($success) {
+                            $emailsSent++;
+                        }
+                    }
                 }
             }
             if (count($dueDateChangedIds) > 0) {
@@ -415,15 +471,16 @@ function handlePlatformCoursesRoutes(string $method, string $path): void {
                 }
             }
             $pdo->commit();
+            
             $message = 'La lista de estudiantes inscritos ha sido actualizada.';
             if ($notify) {
                 if (count($newIds) > 0) {
-                    $message = 'Estudiantes guardados. El envío de correo está deshabilitado en backend PHP.';
+                    $message = "Estudiantes guardados. Se enviaron {$emailsSent} correos de notificación.";
                 } else {
-                    $message = $message . ' No había nuevos estudiantes que notificar.';
+                    $message = 'La lista fue actualizada, pero no había nuevos estudiantes que notificar por correo.';
                 }
             }
-            jsonResponse(200, ['data' => ['success' => true, 'message' => $message, 'emailsSent' => 0]]);
+            jsonResponse(200, ['data' => ['success' => true, 'message' => $message, 'emailsSent' => $emailsSent]]);
         } catch (Throwable $error) {
             $pdo->rollBack();
             throw $error;
