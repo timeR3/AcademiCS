@@ -9,7 +9,8 @@ import { Badge } from '../ui/badge';
 import { ScrollArea } from '../ui/scroll-area';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '../ui/dialog';
 import { Button } from '../ui/button';
-import { Search, Tag, Users, Star, Loader2, ArrowUpDown, ArrowUp, ArrowDown, Trash2, BarChart2, FileDown, Table as LucideTable, Pencil } from 'lucide-react';
+import { Search, Tag, Users, Star, Loader2, ArrowUpDown, ArrowUp, ArrowDown, Trash2, BarChart2, FileDown, Table as LucideTable, Pencil, RotateCcw } from 'lucide-react';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 
 import { useCourse } from '@/context/CourseContext';
 import { Progress } from '../ui/progress';
@@ -23,6 +24,7 @@ import { useToast } from '@/hooks/use-toast';
 import { apiDelete, getFriendlyErrorMessage } from '@/lib/api-client';
 import { Label } from '../ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
+import { apiPatch } from '@/lib/api-client';
 
 function isUafeCourse(title: string): boolean {
     const lower = title.toLowerCase();
@@ -57,6 +59,8 @@ export function CoursesView({ onPrefetchCourse }: CoursesViewProps) {
     const [uafeBaseLegal, setUafeBaseLegal] = useState('Resoluciones UAFE-DG-2024-0621 (Reg. Ofc.675 -30/10/24) / SCVS-RNAE-1904.');
     const [uafeTipo, setUafeTipo] = useState('');
     const [uafeCourseId, setUafeCourseId] = useState<string | null>(null);
+    const [activeTab, setActiveTab] = useState<'active' | 'archived'>('active');
+    const [isRestoring, setIsRestoring] = useState(false);
 
     const handlePdfClick = (course: Course) => {
         if (isUafeCourse(course.title)) {
@@ -87,7 +91,8 @@ export function CoursesView({ onPrefetchCourse }: CoursesViewProps) {
     }, [courses, archivedCourses, allUsers]);
 
     const filteredCourses = allCourses.filter(course =>
-        course.title.toLowerCase().includes(searchTerm.toLowerCase())
+        course.title.toLowerCase().includes(searchTerm.toLowerCase()) &&
+        (activeTab === 'active' ? course.status === 'active' : course.status === 'archived')
     );
     
     const getTeacherForCourse = (teacherId: string | undefined): User | undefined => {
@@ -206,6 +211,26 @@ export function CoursesView({ onPrefetchCourse }: CoursesViewProps) {
     const formatUsd = (value: number | undefined) =>
         new Intl.NumberFormat('es-ES', { style: 'currency', currency: 'USD', minimumFractionDigits: 4, maximumFractionDigits: 6 }).format(value ?? 0);
 
+    const handleRestoreCourse = async (course: Course) => {
+        setIsRestoring(true);
+        try {
+            await apiPatch<{ success: boolean }>(`/api/courses/${course.id}/status`, { action: 'restore' });
+            toast({
+                title: 'Curso restaurado',
+                description: `El curso "${course.title}" ha sido reactivado correctamente.`,
+            });
+            await refreshCourses();
+        } catch (error) {
+            toast({
+                title: 'Error al restaurar',
+                description: getFriendlyErrorMessage(error),
+                variant: 'destructive',
+            });
+        } finally {
+            setIsRestoring(false);
+        }
+    };
+
     const handleDeleteCourse = async () => {
         if (!courseToDelete) {
             return;
@@ -214,8 +239,8 @@ export function CoursesView({ onPrefetchCourse }: CoursesViewProps) {
         try {
             await apiDelete<{ success: boolean }>(`/api/courses/${encodeURIComponent(courseToDelete.id)}`);
             toast({
-                title: 'Curso eliminado',
-                description: `El curso "${courseToDelete.title}" fue eliminado correctamente.`,
+                title: 'Curso archivado',
+                description: `El curso "${courseToDelete.title}" fue movido a la biblioteca de archivados.`,
             });
             if (selectedCourseId === courseToDelete.id) {
                 handleCloseDialog();
@@ -224,7 +249,7 @@ export function CoursesView({ onPrefetchCourse }: CoursesViewProps) {
             await refreshCourses();
         } catch (error) {
             toast({
-                title: 'No pudimos eliminar el curso',
+                title: 'No pudimos procesar la solicitud',
                 description: getFriendlyErrorMessage(error, 'Inténtalo nuevamente en unos segundos.'),
                 variant: 'destructive',
             });
@@ -250,6 +275,14 @@ export function CoursesView({ onPrefetchCourse }: CoursesViewProps) {
                             className="pl-10"
                         />
                     </div>
+
+                    <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as 'active' | 'archived')} className="mb-4">
+                        <TabsList className="grid w-full max-w-[400px] grid-cols-2">
+                            <TabsTrigger value="active">Cursos Activos</TabsTrigger>
+                            <TabsTrigger value="archived">Papelera / Archivados</TabsTrigger>
+                        </TabsList>
+                    </Tabs>
+
                     <div className="flex-grow overflow-hidden rounded-xl border">
                         <ScrollArea className="h-full">
                             <div className="overflow-x-auto">
@@ -300,19 +333,36 @@ export function CoursesView({ onPrefetchCourse }: CoursesViewProps) {
                                                         </Badge>
                                                     </TableCell>
                                                     <TableCell className="text-right">
-                                                        <Button
-                                                            type="button"
-                                                            variant="destructive"
-                                                            size="sm"
-                                                            className="h-8"
-                                                            onClick={(event) => {
-                                                                event.stopPropagation();
-                                                                setCourseToDelete(course);
-                                                            }}
-                                                        >
-                                                            <Trash2 className="h-4 w-4" />
-                                                            Eliminar
-                                                        </Button>
+                                                        {activeTab === 'active' ? (
+                                                            <Button
+                                                                type="button"
+                                                                variant="destructive"
+                                                                size="sm"
+                                                                className="h-8"
+                                                                onClick={(event) => {
+                                                                    event.stopPropagation();
+                                                                    setCourseToDelete(course);
+                                                                }}
+                                                            >
+                                                                <Trash2 className="h-4 w-4" />
+                                                                Eliminar
+                                                            </Button>
+                                                        ) : (
+                                                            <Button
+                                                                type="button"
+                                                                variant="outline"
+                                                                size="sm"
+                                                                className="h-8 border-green-600 text-green-600 hover:bg-green-50"
+                                                                disabled={isRestoring}
+                                                                onClick={(event) => {
+                                                                    event.stopPropagation();
+                                                                    handleRestoreCourse(course);
+                                                                }}
+                                                            >
+                                                                <RotateCcw className="h-4 w-4" />
+                                                                Restaurar
+                                                            </Button>
+                                                        )}
                                                     </TableCell>
                                                 </TableRow>
                                             );
@@ -512,7 +562,7 @@ export function CoursesView({ onPrefetchCourse }: CoursesViewProps) {
                     <AlertDialogHeader>
                         <AlertDialogTitle>¿Deseas eliminar este curso?</AlertDialogTitle>
                         <AlertDialogDescription>
-                            Esta acción eliminará el curso y sus datos asociados. No se puede deshacer.
+                            El curso se moverá a la papelera. Podrás restaurarlo más tarde si lo necesitas, y sus materiales de estudio permanecerán seguros.
                             <blockquote className="mt-4 border-l-2 pl-4 italic">
                                 {courseToDelete?.title}
                             </blockquote>

@@ -323,14 +323,11 @@ function handlePlatformCoursesRoutes(string $method, string $path): void {
         $pdo = db();
         $pdo->beginTransaction();
         try {
-            $courseLink = '/courses/' . $courseId;
-            execSql('DELETE FROM notifications WHERE link = ?', [$courseLink]);
-            if (tableExists($pdo, 'ai_usage_events')) {
-                execSql('DELETE FROM ai_usage_events WHERE course_id = ?', [$courseId]);
-            }
-            execSql('DELETE FROM courses WHERE id = ?', [$courseId]);
+            // En lugar de borrar físicamente el curso, lo marcamos como archivado.
+            // Esto preserva materiales, transcripciones y bibliografía.
+            execSql('UPDATE courses SET status = "archived" WHERE id = ?', [$courseId]);
             $pdo->commit();
-            jsonResponse(200, ['data' => ['success' => true]]);
+            jsonResponse(200, ['data' => ['success' => true, 'message' => 'Curso movido a archivados para preservación de materiales.']]);
         } catch (Throwable $error) {
             $pdo->rollBack();
             throw $error;
