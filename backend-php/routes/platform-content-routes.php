@@ -73,16 +73,16 @@ function extractOpenAiUsageMetadata(array $response): array {
 function transcribePdfFromBase64(string $base64Content): array {
     $apiKey = envValue('OPENAI_API_KEY', null);
     if ($apiKey === null || trim($apiKey) === '') {
-        throw new RuntimeException('OPENAI_API_KEY no está configurada en el backend.');
+        throw new RuntimeException('OPENAI_API_KEY no estÃ¡ configurada en el backend.');
     }
     $model = contentAiModelId();
     $url = 'https://api.openai.com/v1/responses';
-    $payload = [
+        $payload = [
         'model' => $model,
         'input' => [[
             'role' => 'user',
             'content' => [
-                ['type' => 'input_text', 'text' => 'Extrae el texto completo del PDF. Devuelve solo texto plano, sin explicaciones ni markdown.'],
+                ['type' => 'input_text', 'text' => 'Analiza el PDF y extrae ABSOLUTAMENTE TODO su contenido estructurado. DEBES realizar una transcripción literal y completa, sin omitir ninguna palabra, número de página o detalle. DEBES devolver OBLIGATORIAMENTE un objeto JSON con una propiedad "data" que sea un array de objetos con "title" y "content". Divide el documento en secciones lógicas basadas en sus títulos. Asegúrate de que la suma de todos los campos "content" sea una copia fiel y completa del texto original del archivo. No incluyas explicaciones ni markdown.'],
                 ['type' => 'input_file', 'filename' => 'document.pdf', 'file_data' => 'data:application/pdf;base64,' . $base64Content],
             ],
         ]],
@@ -91,7 +91,7 @@ function transcribePdfFromBase64(string $base64Content): array {
     ];
     $jsonPayload = json_encode($payload, JSON_UNESCAPED_UNICODE);
     if ($jsonPayload === false) {
-        throw new RuntimeException('No se pudo preparar la solicitud de transcripción.');
+        throw new RuntimeException('No se pudo preparar la solicitud de transcripciÃ³n.');
     }
     $context = stream_context_create([
         'http' => [
@@ -110,15 +110,15 @@ function transcribePdfFromBase64(string $base64Content): array {
     }
     $decoded = json_decode($raw, true);
     if (!is_array($decoded)) {
-        throw new RuntimeException('La IA devolvió una respuesta inválida al transcribir.');
+        throw new RuntimeException('La IA devolviÃ³ una respuesta invÃ¡lida al transcribir.');
     }
     $errorMessage = isset($decoded['error']['message']) ? trim((string)$decoded['error']['message']) : '';
     if ($errorMessage !== '') {
-        throw new RuntimeException('OpenAI devolvió un error: ' . $errorMessage);
+        throw new RuntimeException('OpenAI devolviÃ³ un error: ' . $errorMessage);
     }
     $text = extractOpenAiTextFromResponse($decoded);
     if ($text === '') {
-        throw new RuntimeException('La IA no devolvió contenido de transcripción.');
+        throw new RuntimeException('La IA no devolviÃ³ contenido de transcripciÃ³n.');
     }
     $usage = extractOpenAiUsageMetadata($decoded);
     return [
@@ -210,12 +210,12 @@ function normalizeChunkTitleLine(string $line): string {
         return '';
     }
     $line = preg_replace('/^[\d\.\-\)\s]+/u', '', $line) ?? $line;
-    $line = trim($line, "-–—•:;,. \t\n\r\0\x0B");
+    $line = trim($line, "-â€“â€”â€¢:;,. \t\n\r\0\x0B");
     if ($line === '') {
         return '';
     }
     if (mb_strlen($line) > 90) {
-        $line = trim(mb_substr($line, 0, 90)) . '…';
+        $line = trim(mb_substr($line, 0, 90)) . 'â€¦';
     }
     return $line;
 }
@@ -230,12 +230,22 @@ function buildChunkTitle(string $content, int $index, string $fileName): string 
     }
     $baseFileName = trim(pathinfo($fileName, PATHINFO_FILENAME));
     if ($baseFileName !== '') {
-        return $baseFileName . ' - Sección ' . ($index + 1);
+        return $baseFileName . ' - SecciÃ³n ' . ($index + 1);
     }
-    return 'Sección ' . ($index + 1);
+    return 'SecciÃ³n ' . ($index + 1);
 }
 
-function buildStructuredTranscript(array $chunks, string $fileName): array {
+function buildStructuredTranscript(array $chunks, string $fileName, string $rawAiText = ''): array {
+    if ($rawAiText !== '') {
+        $decoded = json_decode($rawAiText, true);
+        if (is_array($decoded) && isset($decoded['data']) && is_array($decoded['data'])) {
+            return $decoded['data'];
+        }
+        if (is_array($decoded) && isset($decoded[0]['title'])) {
+            return $decoded;
+        }
+    }
+    
     $structured = [];
     foreach ($chunks as $index => $chunk) {
         $content = trim((string)$chunk);
@@ -289,14 +299,14 @@ function persistTranscriptForHash(int $sharedFileId, string $fileHash, string $b
     $outputTokens = max(0, (int)($transcription['outputTokens'] ?? 0));
     $chunks = splitTranscriptIntoChunks($transcript);
     if (count($chunks) === 0) {
-        throw new RuntimeException('Paso 5/6: separando el contenido. La transcripción está vacía.');
+        throw new RuntimeException('Paso 5/6: separando el contenido. La transcripciÃ³n estÃ¡ vacÃ­a.');
     }
     $inputDistribution = distributeTokensByChunk($chunks, $inputTokens);
     $outputDistribution = distributeTokensByChunk($chunks, $outputTokens);
-    $structured = buildStructuredTranscript($chunks, $fileName);
+    $structured = buildStructuredTranscript($chunks, $fileName, $transcript);
     $structuredJson = json_encode($structured, JSON_UNESCAPED_UNICODE);
     if ($structuredJson === false) {
-        throw new RuntimeException('Paso 5/6: separando el contenido. No se pudo estructurar la transcripción.');
+        throw new RuntimeException('Paso 5/6: separando el contenido. No se pudo estructurar la transcripciÃ³n.');
     }
     $pdo = db();
     $pdo->beginTransaction();
@@ -359,7 +369,7 @@ function handlePlatformContentRoutes(string $method, string $path): void {
             }
             $commaPos = strpos($dataUri, ',');
             if ($commaPos === false) {
-                jsonResponse(400, ['error' => 'Formato de archivo inválido.']);
+                jsonResponse(400, ['error' => 'Formato de archivo invÃ¡lido.']);
             }
             $stage = 'Paso 2/6: leyendo el PDF';
             $base64Content = substr($dataUri, $commaPos + 1);
@@ -441,7 +451,7 @@ function handlePlatformContentRoutes(string $method, string $path): void {
                         'reprocessed' => false,
                     ],
                 ]);
-                jsonResponse(200, ['data' => ['hash' => $fileHash, 'status' => 'cached', 'stage' => 'Completado: ya lo tenías procesado']]);
+                jsonResponse(200, ['data' => ['hash' => $fileHash, 'status' => 'cached', 'stage' => 'Completado: ya lo tenÃ­as procesado']]);
             }
             execSql(
                 'INSERT INTO shared_files (file_name, file_content, file_hash, status, total_chunks) VALUES (?, ?, ?, "processing", 0)',
@@ -572,8 +582,13 @@ function handlePlatformContentRoutes(string $method, string $path): void {
         $itemId = (int)$matches[1];
         $affected = execSql('DELETE FROM course_bibliography WHERE id = ?', [$itemId]);
         if ($affected === 0) {
-            jsonResponse(400, ['error' => 'El ítem no existe.']);
+            jsonResponse(400, ['error' => 'El Ã­tem no existe.']);
         }
         jsonResponse(200, ['data' => ['success' => true]]);
     }
 }
+
+
+
+
+

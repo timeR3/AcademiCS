@@ -14,5 +14,5 @@ function handlePlatformRoutes(string $method, string $path): void {
     handlePlatformCoursesRoutes($method, $path);
     handlePlatformContentRoutes($method, $path);
     handlePlatformReportsRoutes($method, $path);
-
+    handleAdminAuditRoutes($method, $path);
 }

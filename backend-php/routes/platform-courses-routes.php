@@ -775,3 +775,101 @@ function handlePlatformCoursesRoutes(string $method, string $path): void {
         }
     }
 }
+
+function handleAdminAuditRoutes(string $method, string $path): void {
+    if ($method === 'GET' && $path === '/api/admin/transcriptions') {
+        $rows = many(
+            "SELECT sf.id, sf.file_name, sf.file_hash, sf.status, sf.uploaded_at,
+                    (SELECT COUNT(*) FROM file_transcript_chunks WHERE file_hash = sf.file_hash) as chunk_count,
+                    ft.created_at as transcribed_at,
+                    ft.input_tokens, ft.output_tokens
+             FROM shared_files sf
+             LEFT JOIN file_transcripts ft ON ft.file_hash = sf.file_hash
+             ORDER BY sf.uploaded_at DESC"
+        );
+        
+        $data = array_map(function(array $row): array {
+            return [
+                'id' => (string)$row['id'],
+                'fileName' => $row['file_name'],
+                'fileHash' => $row['file_hash'],
+                'status' => $row['status'],
+                'uploadedAt' => $row['uploaded_at'] ? (new DateTime((string)$row['uploaded_at']))->format(DateTime::ATOM) : null,
+                'chunkCount' => (int)$row['chunk_count'],
+                'transcribedAt' => $row['transcribed_at'] ? (new DateTime((string)$row['transcribed_at']))->format(DateTime::ATOM) : null,
+                'inputTokens' => (int)($row['input_tokens'] ?? 0),
+                'outputTokens' => (int)($row['output_tokens'] ?? 0),
+            ];
+        }, $rows);
+        
+        jsonResponse(200, ['data' => $data]);
+    }
+
+    if ($method === 'GET' && preg_match("#^/api/admin/transcriptions/([^/]+)$#", $path, $matches)) {
+        $fileHash = urldecode($matches[1]);
+        
+        $transcript = one(
+            "SELECT structured_content, input_tokens, output_tokens, created_at 
+             FROM file_transcripts 
+             WHERE file_hash = ?", 
+            [$fileHash]
+        );
+        
+        $chunks = many(
+            "SELECT chunk_index, text_content 
+             FROM file_transcript_chunks 
+             WHERE file_hash = ? 
+             ORDER BY chunk_index ASC", 
+            [$fileHash]
+        );
+        
+        if (!$transcript && count($chunks) === 0) {
+            jsonResponse(404, ['error' => 'Transcripci�n no encontrada.']);
+        }
+        
+        $structuredContent = [];
+        if ($transcript && $transcript['structured_content']) {
+            $structuredContent = json_decode((string)$transcript['structured_content'], true) ?: [];
+        }
+        
+        jsonResponse(200, [
+            'data' => [
+                'fileHash' => $fileHash,
+                'structuredContent' => $structuredContent,
+                'chunks' => array_map(function($c) {
+                    return [
+                        'index' => (int)$c['chunk_index'],
+                        'content' => $c['text_content']
+                    ];
+                }, $chunks),
+                'metrics' => [
+                    'inputTokens' => $transcript ? (int)$transcript['input_tokens'] : 0,
+                    'outputTokens' => $transcript ? (int)$transcript['output_tokens'] : 0,
+                    'createdAt' => $transcript ? (new DateTime((string)$transcript['created_at']))->format(DateTime::ATOM) : null,
+                ]
+            ]
+        ]);
+    }
+
+    if ($method === 'DELETE' && preg_match("#^/api/admin/transcriptions/([^/]+)$#", $path, $matches)) {
+        $fileHash = urldecode($matches[1]);
+        
+        $pdo = db();
+        $pdo->beginTransaction();
+        try {
+            execSql("DELETE FROM file_transcript_chunks WHERE file_hash = ?", [$fileHash]);
+            execSql("DELETE FROM file_transcripts WHERE file_hash = ?", [$fileHash]);
+            execSql(
+                "UPDATE shared_files SET status = 'pending', processed_chunks = 0, total_chunks = 0 WHERE file_hash = ?",
+                [$fileHash]
+            );
+            $pdo->commit();
+            jsonResponse(200, ['data' => ['success' => true]]);
+        } catch (Throwable $error) {
+            $pdo->rollBack();
+            throw $error;
+        }
+    }
+}
+
+

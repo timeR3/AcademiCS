@@ -9,7 +9,7 @@ import { useAuth } from './AuthContext';
 import { useRole } from './RoleContext';
 import { apiGet } from '@/lib/api-client';
 
-type AdminView = 'analytics' | 'courses' | 'users' | 'settings' | 'edit-course' | 'course-analytics' | 'students';
+type AdminView = 'analytics' | 'courses' | 'users' | 'settings' | 'edit-course' | 'course-analytics' | 'students' | 'transcriptions';
 
 
 type TeacherView = 'dashboard' | 'create' | 'edit' | 'students' | 'overview' | 'analytics' | 'archived-overview' | 'suspended-overview';

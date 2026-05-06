@@ -570,14 +570,17 @@ export function CoursesView({ onPrefetchCourse }: CoursesViewProps) {
                     </AlertDialogHeader>
                     <AlertDialogFooter>
                         <AlertDialogCancel disabled={isDeletingCourse}>Cancelar</AlertDialogCancel>
-                        <AlertDialogAction
-                            onClick={handleDeleteCourse}
-                            className={buttonVariants({ variant: 'destructive' })}
+                        <Button
+                            variant="destructive"
+                            onClick={async (e) => {
+                                e.preventDefault();
+                                await handleDeleteCourse();
+                            }}
                             disabled={isDeletingCourse}
                         >
                             {isDeletingCourse ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Trash2 className="mr-2 h-4 w-4" />}
                             Sí, eliminar curso
-                        </AlertDialogAction>
+                        </Button>
                     </AlertDialogFooter>
                 </AlertDialogContent>
             </AlertDialog>

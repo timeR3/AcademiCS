@@ -2,7 +2,7 @@
 import { useRole } from '@/context/RoleContext';
 import { useCourse } from '@/context/CourseContext';
 import { Sidebar, SidebarContent, SidebarHeader, SidebarMenu, SidebarMenuItem, SidebarMenuButton, useSidebar, SidebarPin } from '../ui/sidebar';
-import { School, LayoutDashboard, BookOpen, Users, Bot, GraduationCap, PlusCircle, Menu, Award, FolderKanban, Settings } from 'lucide-react';
+import { School, LayoutDashboard, BookOpen, Users, Bot, GraduationCap, PlusCircle, Menu, Award, FolderKanban, Settings, FileSearch } from 'lucide-react';
 import { Button } from '../ui/button';
 
 
@@ -72,6 +72,12 @@ function AdminSidebar() {
                 <SidebarMenuButton onClick={() => setAdminView('settings')} isActive={adminView === 'settings'}>
                     <Settings />
                     <span>Configuraciones</span>
+                </SidebarMenuButton>
+            </SidebarMenuItem>
+            <SidebarMenuItem>
+                <SidebarMenuButton onClick={() => setAdminView('transcriptions')} isActive={adminView === 'transcriptions'}>
+                    <FileSearch />
+                    <span>Auditor AI</span>
                 </SidebarMenuButton>
             </SidebarMenuItem>
         </SidebarMenu>

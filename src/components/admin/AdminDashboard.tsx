@@ -4,6 +4,7 @@ import { AnalyticsView } from './AnalyticsView';
 import { UsersView } from './UsersView';
 import { CoursesView } from './CoursesView';
 import { SettingsView } from './SettingsView';
+import { TranscriptionsView } from './TranscriptionsView';
 import { CourseCreationView } from '../teacher/CourseCreationView';
 import type { Course } from '@/types';
 import { useCourse } from '@/context/CourseContext';
@@ -107,6 +108,8 @@ export default function AdminDashboard() {
         return <UsersView />;
       case 'settings':
         return <SettingsView />;
+      case 'transcriptions':
+        return <TranscriptionsView />;
       default:
         return <AnalyticsView />;
     }
